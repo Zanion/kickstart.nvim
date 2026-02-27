@@ -893,8 +893,8 @@ require('lazy').setup({
           local language = vim.treesitter.language.get_lang(filetype)
           if not language or not vim.tbl_contains(parsers, language) then return end
 
+          -- enables syntax highlighting and other treesitter features
           vim.treesitter.start(buf, language)
-
           -- enables treesitter based folds
           -- for more info on folds see `:help folds`
           -- vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
