@@ -13,12 +13,16 @@ return {
     {
       "<leader>tg",
       function()
-        Snacks.terminal.toggle("gemini", {
-          win = { style = "float", border = "rounded" },
-          env = { NVIM = vim.v.servername },
-        })
+        require("custom.gemini").toggle_gemini()
       end,
       desc = "Toggle Gemini CLI",
+    },
+    {
+      "<leader>ts",
+      function()
+        require("custom.gemini").pick_session()
+      end,
+      desc = "Select Gemini Session",
     },
   },
 }
