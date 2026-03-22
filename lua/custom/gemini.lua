@@ -23,9 +23,7 @@ local function parse_sessions(stdout)
     end
   end
 
-  -- Reverse chronological order: 
-  -- gemini --list-sessions returns 1 (oldest) to N (newest)
-  -- We want New Session, then N, N-1, ..., 1.
+  -- Reverse chronological order
   for i = #found_sessions, 1, -1 do
     table.insert(sessions, found_sessions[i])
   end
@@ -113,7 +111,6 @@ function M.show_picker(sessions)
         actions.close(prompt_bufnr)
         local selection = action_state.get_selected_entry()
         
-        -- The cmd already includes the 'env NVIM=...' prefix from parse_sessions
         snacks.terminal.toggle(selection.value.cmd, {
           win = { style = "float", border = "rounded" },
         })
@@ -130,36 +127,42 @@ function M.pick_session()
     M.show_picker(M.session_cache)
     M.refresh_sessions()
   else
-    local loading = vim.notify("Fetching Gemini sessions...", vim.log.levels.INFO, {
+    local notify = require("notify")
+    local loading = notify("Fetching Gemini sessions...", vim.log.levels.INFO, {
       title = "Gemini",
       icon = "󰚩 ",
       timeout = false,
     })
     
     M.refresh_sessions(function(sessions)
-      if loading then 
-        vim.notify(nil, nil, { replace = loading, timeout = 1 })
-      end
+      notify("Gemini Ready", vim.log.levels.INFO, {
+        replace = loading,
+        icon = "󰄬 ",
+        timeout = 2000,
+      })
       M.show_picker(sessions)
     end)
   end
 end
 
 function M.setup()
-  local loading = vim.notify("Initializing Gemini...", vim.log.levels.INFO, {
-    title = "Gemini",
-    icon = "󰚩 ",
-    timeout = false,
-  })
-  M.refresh_sessions(function()
-    if loading then
-      vim.notify("Gemini Ready", vim.log.levels.INFO, {
+  -- Use a slightly deferred initialization to ensure nvim-notify is ready
+  vim.defer_fn(function()
+    local notify = require("notify")
+    local loading = notify("Initializing Gemini...", vim.log.levels.INFO, {
+      title = "Gemini",
+      icon = "󰚩 ",
+      timeout = false,
+    })
+    
+    M.refresh_sessions(function()
+      notify("Gemini Ready", vim.log.levels.INFO, {
         replace = loading,
         icon = "󰄬 ",
         timeout = 2000,
       })
-    end
-  end)
+    end)
+  end, 500)
 end
 
 return M
