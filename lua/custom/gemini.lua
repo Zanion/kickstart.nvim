@@ -146,7 +146,20 @@ function M.pick_session()
 end
 
 function M.setup()
-  M.refresh_sessions()
+  local loading = vim.notify("Initializing Gemini...", vim.log.levels.INFO, {
+    title = "Gemini",
+    icon = "󰚩 ",
+    timeout = false,
+  })
+  M.refresh_sessions(function()
+    if loading then
+      vim.notify("Gemini Ready", vim.log.levels.INFO, {
+        replace = loading,
+        icon = "󰄬 ",
+        timeout = 2000,
+      })
+    end
+  end)
 end
 
 return M
