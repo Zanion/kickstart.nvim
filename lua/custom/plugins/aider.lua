@@ -25,20 +25,5 @@ return {
         color = '#888888', -- Border color
       },
     }
-
-    -- Keep the default keybindings structure but override them with our desired flags
-    -- The default <leader>A prefix will still be used
-    vim.keymap.set('n', '<leader>Ao', ':AiderOpen --vim --editor "nvim" --dark-mode<CR>', { desc = 'Open Aider (with vim and nvim editor)' })
-
-    -- The default <leader>Am for adding modified files remains unchanged since we don't need to customize it
-
-    -- Additional keybindings for specific use cases
-    vim.keymap.set('n', '<leader>A4', ':AiderOpen -4 --vim --editor "nvim --wait" editor<CR>', { desc = 'Open Aider with GPT-4' })
-    vim.keymap.set(
-      'n',
-      '<leader>As',
-      ':AiderOpen --model anthropic/claude-3-7-sonnet-20250219 --vim --editor "nvim --wait"<CR>',
-      { desc = 'Open Aider with Claude 3.7 Sonnet' }
-    )
   end,
 }
