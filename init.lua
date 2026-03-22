@@ -999,7 +999,6 @@ require('lazy').setup({
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
   { import = 'custom.plugins' },
-  { 'augmentcode/augment.vim' },
 
   { -- In-editor Markdown reader/renderer
     'MeanderingProgrammer/render-markdown.nvim',
