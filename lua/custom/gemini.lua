@@ -37,12 +37,18 @@ function M.refresh_sessions(callback)
   end)
 end
 
--- Function to find an existing Gemini terminal buffer
-local function find_gemini_terminal()
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    local name = vim.api.nvim_buf_get_name(buf)
-    if name:match("term:.*gemini") then
-      return buf
+-- Function to find an existing Gemini terminal instance using Snacks API
+local function get_gemini_terminal()
+  local snacks = require("snacks")
+  -- We don't use id="gemini" anymore, because Snacks.terminal.toggle uses tid(cmd, opts)
+  -- Instead, we just check all open terminals to see if any are running gemini
+  for _, terminal in pairs(snacks.terminal.get_all()) do
+    local buf = terminal.buf
+    if vim.api.nvim_buf_is_valid(buf) then
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name:match("gemini") then
+        return terminal
+      end
     end
   end
   return nil
@@ -50,11 +56,11 @@ end
 
 function M.toggle_gemini()
   local snacks = require("snacks")
-  local gemini_buf = find_gemini_terminal()
+  local terminal = get_gemini_terminal()
 
-  -- If it's already running, just toggle it
-  if gemini_buf then
-    snacks.terminal.toggle(nil, { id = "gemini" })
+  if terminal then
+    -- If it exists, toggle the window
+    terminal:toggle()
     return
   end
 
@@ -88,10 +94,14 @@ function M.show_picker(sessions)
         actions.close(prompt_bufnr)
         local selection = action_state.get_selected_entry()
         
+        -- MERGE environment variables to avoid losing PATH/HOME/etc.
+        local env = vim.tbl_extend("force", vim.fn.environ(), {
+          NVIM = vim.v.servername,
+        })
+
         snacks.terminal.toggle(selection.value.cmd, {
-          id = "gemini",
           win = { style = "float", border = "rounded" },
-          env = { NVIM = vim.v.servername },
+          env = env,
         })
         -- Refresh cache for next time after selecting a session
         vim.defer_fn(function() M.refresh_sessions() end, 1000)
@@ -107,7 +117,6 @@ function M.pick_session()
     -- Also trigger a background refresh in case things changed
     M.refresh_sessions()
   else
-    -- If cache is empty (e.g. immediate launch), show loading message and wait
     local loading = vim.notify("Fetching Gemini sessions...", vim.log.levels.INFO, {
       title = "Gemini",
       icon = "󰚩 ",
