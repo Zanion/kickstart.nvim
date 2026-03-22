@@ -8,17 +8,28 @@ M.callbacks = {}
 -- Function to parse the raw gemini output into a table
 local function parse_sessions(stdout)
   local sessions = { { id = "new", text = "  <New Session>", cmd = "gemini" } }
+  local found_sessions = {}
+  
+  -- Parse output: 1. Description... (time) [id]
   for line in stdout:gmatch("[^\r\n]+") do
     local id = line:match("%[([a-f0-9%-]+)%]$")
     if id then
       local display_text = line:gsub("^%s*%d+%.%s*", ""):gsub("%s*%[[a-f0-9%-]+%]$", "")
-      table.insert(sessions, {
+      table.insert(found_sessions, {
         id = id,
         text = "󰚩  " .. display_text,
-        cmd = "gemini --resume " .. id,
+        cmd = "env NVIM=" .. vim.fn.shellescape(vim.v.servername) .. " gemini --resume " .. id,
       })
     end
   end
+
+  -- Reverse chronological order: 
+  -- gemini --list-sessions returns 1 (oldest) to N (newest)
+  -- We want New Session, then N, N-1, ..., 1.
+  for i = #found_sessions, 1, -1 do
+    table.insert(sessions, found_sessions[i])
+  end
+  
   return sessions
 end
 
@@ -102,10 +113,8 @@ function M.show_picker(sessions)
         actions.close(prompt_bufnr)
         local selection = action_state.get_selected_entry()
         
-        -- Use 'env' command prefix to set NVIM without overriding the entire env table.
-        local cmd = string.format("env NVIM=%s %s", vim.fn.shellescape(vim.v.servername), selection.value.cmd)
-
-        snacks.terminal.toggle(cmd, {
+        -- The cmd already includes the 'env NVIM=...' prefix from parse_sessions
+        snacks.terminal.toggle(selection.value.cmd, {
           win = { style = "float", border = "rounded" },
         })
         
@@ -129,7 +138,6 @@ function M.pick_session()
     
     M.refresh_sessions(function(sessions)
       if loading then 
-        -- Dismiss the notification properly
         vim.notify(nil, nil, { replace = loading, timeout = 1 })
       end
       M.show_picker(sessions)
