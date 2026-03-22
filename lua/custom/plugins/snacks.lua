@@ -9,25 +9,44 @@ return {
   },
   config = function(_, opts)
     require("snacks").setup(opts)
-    -- Trigger background fetch of Gemini sessions
-    require("custom.gemini").setup()
+    require("custom.agent").setup()
   end,
   keys = {
-    -- Normal mode toggle
     { "<leader>tt", function() Snacks.terminal.toggle("zsh", { win = { style = "float", border = "rounded" } }) end, desc = "Toggle Floating Terminal" },
+    {
+      "<leader>ta",
+      function()
+        require("custom.agent").toggle()
+      end,
+      desc = "Toggle Agent Picker",
+    },
     {
       "<leader>tg",
       function()
-        require("custom.gemini").toggle_gemini()
+        require("custom.agent").toggle_agent("gemini")
       end,
-      desc = "Toggle Gemini CLI",
+      desc = "Toggle Gemini",
     },
     {
-      "<leader>ts",
+      "<leader>tc",
       function()
-        require("custom.gemini").pick_session()
+        require("custom.agent").toggle_agent("cursor")
       end,
-      desc = "Select Gemini Session",
+      desc = "Toggle Cursor",
+    },
+    {
+      "<leader>tl",
+      function()
+        require("custom.agent").toggle_agent("claude")
+      end,
+      desc = "Toggle Claude",
+    },
+    {
+      "<leader>to",
+      function()
+        require("custom.agent").toggle_agent("opencode")
+      end,
+      desc = "Toggle OpenCode",
     },
   },
 }
