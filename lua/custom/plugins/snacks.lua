@@ -10,6 +10,15 @@ return {
   keys = {
     -- Normal mode toggle
     { "<leader>tt", function() Snacks.terminal.toggle("zsh", { win = { style = "float", border = "rounded" } }) end, desc = "Toggle Floating Terminal" },
-    { "<leader>tg", function() Snacks.terminal.toggle("gemini", { win = { style = "float", border = "rounded" } }) end, desc = "Toggle Gemini CLI" },
+    {
+      "<leader>tg",
+      function()
+        Snacks.terminal.toggle("gemini", {
+          win = { style = "float", border = "rounded" },
+          env = { NVIM = vim.v.servername },
+        })
+      end,
+      desc = "Toggle Gemini CLI",
+    },
   },
 }
