@@ -3,6 +3,7 @@ local M = {}
 -- Cache for the session list
 M.session_cache = nil
 M.is_refreshing = false
+M.callbacks = {}
 
 -- Function to parse the raw gemini output into a table
 local function parse_sessions(stdout)
@@ -23,6 +24,10 @@ end
 
 -- Refresh the session cache asynchronously
 function M.refresh_sessions(callback)
+  if callback then
+    table.insert(M.callbacks, callback)
+  end
+
   if M.is_refreshing then return end
   M.is_refreshing = true
 
@@ -31,8 +36,16 @@ function M.refresh_sessions(callback)
       M.is_refreshing = false
       if obj.code == 0 then
         M.session_cache = parse_sessions(obj.stdout)
-        if callback then callback(M.session_cache) end
+      else
+        M.session_cache = { { id = "new", text = "  <New Session>", cmd = "gemini" } }
+        vim.notify("Failed to fetch Gemini sessions", vim.log.levels.ERROR)
       end
+
+      -- Call all queued callbacks
+      for _, cb in ipairs(M.callbacks) do
+        cb(M.session_cache)
+      end
+      M.callbacks = {}
     end)
   end)
 end
@@ -40,12 +53,10 @@ end
 -- Function to find an existing Gemini terminal instance using Snacks API
 local function get_gemini_terminal()
   local snacks = require("snacks")
-  -- Snacks.terminal.list() returns all active terminal instances
   for _, terminal in pairs(snacks.terminal.list()) do
     local buf = terminal.buf
     if vim.api.nvim_buf_is_valid(buf) then
       local name = vim.api.nvim_buf_get_name(buf)
-      -- Match "gemini" in the buffer name (which includes the command)
       if name:match("gemini") then
         return terminal
       end
@@ -58,12 +69,10 @@ function M.toggle_gemini()
   local terminal = get_gemini_terminal()
 
   if terminal then
-    -- If it exists, toggle the window
     terminal:toggle()
     return
   end
 
-  -- If not running, show the session picker
   M.pick_session()
 end
 
@@ -94,14 +103,12 @@ function M.show_picker(sessions)
         local selection = action_state.get_selected_entry()
         
         -- Use 'env' command prefix to set NVIM without overriding the entire env table.
-        -- This ensures the shell inherits PATH, HOME, and other variables naturally.
         local cmd = string.format("env NVIM=%s %s", vim.fn.shellescape(vim.v.servername), selection.value.cmd)
 
         snacks.terminal.toggle(cmd, {
           win = { style = "float", border = "rounded" },
         })
         
-        -- Refresh cache for next time
         vim.defer_fn(function() M.refresh_sessions() end, 1000)
       end)
       return true
@@ -110,7 +117,7 @@ function M.show_picker(sessions)
 end
 
 function M.pick_session()
-  if M.session_cache then
+  if M.session_cache and not M.is_refreshing then
     M.show_picker(M.session_cache)
     M.refresh_sessions()
   else
@@ -119,8 +126,12 @@ function M.pick_session()
       icon = "󰚩 ",
       timeout = false,
     })
+    
     M.refresh_sessions(function(sessions)
-      if loading then vim.notify(nil, nil, { replace = loading, timeout = 1 }) end
+      if loading then 
+        -- Dismiss the notification properly
+        vim.notify(nil, nil, { replace = loading, timeout = 1 })
+      end
       M.show_picker(sessions)
     end)
   end
