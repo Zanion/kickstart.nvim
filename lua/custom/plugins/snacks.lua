@@ -7,6 +7,11 @@ return {
       enabled = true,
     },
   },
+  config = function(_, opts)
+    require("snacks").setup(opts)
+    -- Trigger background fetch of Gemini sessions
+    require("custom.gemini").setup()
+  end,
   keys = {
     -- Normal mode toggle
     { "<leader>tt", function() Snacks.terminal.toggle("zsh", { win = { style = "float", border = "rounded" } }) end, desc = "Toggle Floating Terminal" },
