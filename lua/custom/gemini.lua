@@ -40,9 +40,8 @@ end
 -- Function to find an existing Gemini terminal instance using Snacks API
 local function get_gemini_terminal()
   local snacks = require("snacks")
-  -- We don't use id="gemini" anymore, because Snacks.terminal.toggle uses tid(cmd, opts)
-  -- Instead, we just check all open terminals to see if any are running gemini
-  for _, terminal in pairs(snacks.terminal.get_all()) do
+  -- Snacks.terminal.list() is the correct function to get all terminals
+  for _, terminal in pairs(snacks.terminal.list()) do
     local buf = terminal.buf
     if vim.api.nvim_buf_is_valid(buf) then
       local name = vim.api.nvim_buf_get_name(buf)
