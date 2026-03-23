@@ -2,7 +2,30 @@ local M = {}
 
 local worktree = require("custom.work_dispatch.worktree")
 local registry = require("custom.work_dispatch.registry")
-local agent = require("custom.agent")
+
+-- Lazily load agent module with defensive check
+local function get_agent()
+  local ok, agent_module = pcall(require, "custom.agent")
+  if not ok then
+    vim.notify("custom.agent module not found - agent features disabled", vim.log.levels.WARN, {
+      title = "Work Dispatch",
+    })
+    return { agents = {} }
+  end
+  return agent_module
+end
+
+-- Lazily load snacks with defensive check
+local function get_snacks()
+  local ok, snacks = pcall(require, "snacks")
+  if not ok then
+    vim.notify("snacks plugin not installed - terminal features disabled", vim.log.levels.ERROR, {
+      title = "Work Dispatch",
+    })
+    return nil
+  end
+  return snacks
+end
 
 local config = {
   worktree_root = nil,
@@ -68,12 +91,26 @@ function M.dispatch(bead_id, agent_name, opts)
 
   local entry = registry.create(worktree_info)
   if not entry then
-    worktree.remove(worktree_info.name)
+    -- Cleanup worktree on registry creation failure
+    local remove_ok, remove_err = worktree.remove(worktree_info.name)
+    if not remove_ok then
+      vim.notify("Failed to cleanup worktree: " .. remove_err, vim.log.levels.WARN, {
+        title = "Work Dispatch",
+      })
+    end
     return nil, "Failed to create registry entry"
   end
 
-  local snacks = require("snacks")
-  local cmd = agent_name
+  local snacks = get_snacks()
+  if not snacks then
+    -- Cleanup on snacks failure
+    registry.delete(entry.id)
+    worktree.remove(worktree_info.name)
+    return nil, "snacks plugin required for terminal features"
+  end
+
+  local agent_module = get_agent()
+  local cmd = agent_module.agents[agent_name] and agent_module.agents[agent_name].cmd or agent_name
 
   local env = {
     "BEAD_ID=" .. bead_id,
@@ -147,6 +184,9 @@ function M.list_active()
       actions.select_default:replace(function()
         actions.close(prompt_bufnr)
         local selection = action_state.get_selected_entry()
+        if not selection or not selection.value then
+          return
+        end
         M.focus(selection.value.id)
       end)
       return true
@@ -163,7 +203,11 @@ function M.focus(worktree_id)
     return nil, "Worktree not found"
   end
 
-  local snacks = require("snacks")
+  local snacks = get_snacks()
+  if not snacks then
+    return nil, "snacks plugin required"
+  end
+
   local terminal_matcher = entry.agent or "worktree"
 
   for _, terminal in pairs(snacks.terminal.list()) do
@@ -181,7 +225,8 @@ function M.focus(worktree_id)
     title = "Work Dispatch",
   })
 
-  vim.cmd("cd " .. vim.fn.fnameescape(entry.path))
+  -- Use vim.fn.chdir instead of vim.cmd for safer directory change
+  vim.fn.chdir(entry.path)
 
   return entry
 end
@@ -234,6 +279,9 @@ function M.pick_dispatch()
       actions.select_default:replace(function()
         actions.close(prompt_bufnr)
         local selection = action_state.get_selected_entry()
+        if not selection or not selection.value then
+          return
+        end
         M.pick_agent(selection.value)
       end)
       return true
@@ -242,8 +290,9 @@ function M.pick_dispatch()
 end
 
 function M.pick_agent(bead)
+  local agent_module = get_agent()
   local agent_list = {}
-  for name, _ in pairs(agent.agents) do
+  for name, _ in pairs(agent_module.agents or {}) do
     table.insert(agent_list, {
       name = name,
       display = name,
@@ -280,6 +329,9 @@ function M.pick_agent(bead)
       actions.select_default:replace(function()
         actions.close(prompt_bufnr)
         local selection = action_state.get_selected_entry()
+        if not selection or not selection.value then
+          return
+        end
         M.dispatch(bead.id, selection.value.name, {
           title = bead.title,
         })
@@ -304,7 +356,7 @@ end
 M.worktree = worktree
 M.registry = registry
 M.beads = nil
-M.agent = agent
+M.agent = get_agent
 
 function M.load_beads()
   if not M.beads then

@@ -80,6 +80,8 @@ function M.add_to_gitignore(root)
   end
 
   table.insert(lines, root_name)
+  -- Ensure .gitignore has trailing newline
+  table.insert(lines, "")
   vim.fn.writefile(lines, gitignore_path)
   return true
 end
@@ -129,14 +131,23 @@ local function get_existing_worktrees()
   end
 
   local worktrees = {}
-  local current = {}
+  local current = nil
 
   for line in output:gmatch("[^\r\n]+") do
     if line:match("^worktree ") then
-      current.path = line:gsub("^worktree ", "")
-    elseif line:match("^branch ") then
+      if current then
+        table.insert(worktrees, current)
+      end
+      current = {
+        path = line:gsub("^worktree ", ""),
+      }
+    elseif line:match("^branch ") and current then
       current.branch = line:gsub("^branch ", "")
     end
+  end
+
+  if current then
+    table.insert(worktrees, current)
   end
 
   return worktrees
@@ -155,15 +166,22 @@ local function get_counter_for_bead(bead_id)
   end
 
   local max_counter = 0
-  local pattern = string.format("feature%-%s%%-(%%d+)%%-", bead_id)
 
+  -- Parse git worktree list and extract counters from branches
+  local current_branch = nil
   for line in output:gmatch("[^\r\n]+") do
-    local branch = line:match("^branch (.+)")
-    if branch then
-      local counter = branch:match(pattern)
+    if line:match("^worktree ") then
+      -- New worktree entry, reset
+    elseif line:match("^branch ") then
+      current_branch = line:gsub("^branch ", "")
+    elseif current_branch then
+      -- Look for counter in branch name: feature-{bead-id}-{counter}-{slug}
+      -- Match pattern like "feature-bd-42-1-some-feature"
+      local counter = current_branch:match("feature%-" .. bead_id .. "%-(%d+)%%-")
       if counter then
         max_counter = math.max(max_counter, tonumber(counter))
       end
+      current_branch = nil
     end
   end
 
@@ -176,6 +194,12 @@ function M.create(bead_id, title, opts)
   local slug = opts.slug or generate_slug(title)
 
   local name = build_worktree_name(bead_id, slug, counter)
+
+  -- Validate length (git branch name limit is 255 chars)
+  if #name > 255 then
+    return nil, "ENAME: Worktree name too long (max 255 chars)"
+  end
+
   local root = M.ensure_root()
   local path = root .. "/" .. name
 

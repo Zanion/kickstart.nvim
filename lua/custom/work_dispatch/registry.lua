@@ -27,24 +27,36 @@ local function get_timestamp()
 end
 
 function M.load()
+  -- Return cached data if available
+  if registry_cache then
+    return registry_cache
+  end
+
   local path = get_registry_path()
 
   if vim.fn.filereadable(path) == 0 then
-    return { version = 1, worktrees = {} }
+    local data = { version = 1, worktrees = {} }
+    registry_cache = data
+    return data
   end
 
   local lines = vim.fn.readfile(path)
   if not lines or #lines == 0 then
-    return { version = 1, worktrees = {} }
+    local data = { version = 1, worktrees = {} }
+    registry_cache = data
+    return data
   end
 
   local content = table.concat(lines, "\n")
   local ok, data = pcall(vim.json.decode, content)
 
   if not ok or not data then
-    return { version = 1, worktrees = {} }
+    local empty_data = { version = 1, worktrees = {} }
+    registry_cache = empty_data
+    return empty_data
   end
 
+  registry_cache = data
   return data
 end
 
@@ -75,6 +87,20 @@ end
 function M.create(worktree_info)
   local data = M.load()
 
+  -- Validate status if provided
+  if worktree_info.status then
+    local valid = false
+    for _, s in ipairs(STATUSES) do
+      if s == worktree_info.status then
+        valid = true
+        break
+      end
+    end
+    if not valid then
+      return nil, "Invalid status: " .. worktree_info.status
+    end
+  end
+
   local entry = {
     id = generate_uuid(),
     path = worktree_info.path,
@@ -84,7 +110,7 @@ function M.create(worktree_info)
     bead_title = worktree_info.bead_title or nil,
     agent = worktree_info.agent or nil,
     session_id = nil,
-    status = "ready",
+    status = worktree_info.status or "ready",
     needs_input = false,
     needs_input_since = nil,
     created_at = get_timestamp(),
@@ -184,15 +210,8 @@ function M.find_by_status(status)
 end
 
 function M.find_by_name(name)
-  local data = M.load()
-
-  for _, wt in ipairs(data.worktrees) do
-    if wt.name == name then
-      return wt
-    end
-  end
-
-  return nil
+  -- Delegate to get() for consistency
+  return M.get(name)
 end
 
 function M.get_names_by_bead(bead_id)
@@ -240,5 +259,10 @@ end
 function M.invalidate_cache()
   registry_cache = nil
 end
+
+-- Alias functions for API consistency with requirements
+M.get_by_bead = M.find_by_bead
+M.get_by_status = M.find_by_status
+M.remove = M.delete
 
 return M
