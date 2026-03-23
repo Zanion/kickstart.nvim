@@ -36,6 +36,10 @@ function M.register()
   vim.api.nvim_create_user_command('BdGraph', function(opts)
     require('beads.graph').graph(opts.args)
   end, { nargs = '?' })
+
+  vim.api.nvim_create_user_command('BdStatus', function()
+    require('beads.status').status()
+  end, {})
 end
 
 return M
