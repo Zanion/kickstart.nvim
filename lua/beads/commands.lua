@@ -32,6 +32,10 @@ function M.register()
   vim.api.nvim_create_user_command('BdOpen', function(opts)
     require('beads.navigation').open_issue_url(opts.args)
   end, { nargs = 1 })
+
+  vim.api.nvim_create_user_command('BdGraph', function(opts)
+    require('beads.graph').graph(opts.args)
+  end, { nargs = '?' })
 end
 
 return M

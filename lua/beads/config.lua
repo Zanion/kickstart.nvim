@@ -6,6 +6,8 @@ local M = {
       show = '<leader>i',
       close = 'q',
     },
+    graph_width = 80,
+    graph_height = 24,
   },
 }
 
