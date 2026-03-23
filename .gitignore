@@ -17,3 +17,6 @@ lazy-lock.json
 .worktrees/
 .dolt/
 *.db
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
