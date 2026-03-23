@@ -25,14 +25,16 @@ function M.setup(opts)
 end
 
 local function run_bd_command(args)
-  local cmd = config.cmd_prefix .. " " .. args
-  local output = vim.fn.system(cmd)
+  local cmd_parts = vim.split(args, " ", { trimempty = true })
+  table.insert(cmd_parts, 1, config.cmd_prefix)
+  local cmd_display = table.concat(cmd_parts, " ")
+  local output = vim.fn.system(cmd_parts)
 
   if vim.v.shell_error ~= 0 then
     return nil, {
       code = vim.v.shell_error,
       message = output or "Beads command failed",
-      cmd = cmd,
+      cmd = cmd_display,
     }
   end
 
@@ -45,7 +47,7 @@ local function run_bd_command(args)
     return nil, {
       code = -1,
       message = "Failed to parse JSON output",
-      cmd = cmd,
+      cmd = cmd_display,
       raw = output,
     }
   end
@@ -77,6 +79,9 @@ function M.get_bead(bead_id)
   end
 
   local parsed_id = M.parse_id(bead_id)
+  if not parsed_id then
+    return nil, "Invalid bead ID format"
+  end
   local bead, err = run_bd_command("show " .. parsed_id .. " --json")
 
   if err then
@@ -104,6 +109,9 @@ function M.update_status(bead_id, status)
   end
 
   local parsed_id = M.parse_id(bead_id)
+  if not parsed_id then
+    return nil, "Invalid bead ID format"
+  end
   local cmd_args
 
   if status == "in_progress" or status == "claimed" then
@@ -173,7 +181,7 @@ function M.parse_id(bead_id)
     end
   end
 
-  return bead_id
+  return nil
 end
 
 function M.create_context(worktree_path, bead)
@@ -290,8 +298,7 @@ function M.extract_number(bead_id)
 end
 
 function M.is_available()
-  local cmd = config.cmd_prefix .. " --version"
-  local output = vim.fn.system(cmd)
+  local output = vim.fn.system({ config.cmd_prefix, "--version" })
   return vim.v.shell_error == 0
 end
 
@@ -311,6 +318,9 @@ function M.set_status(bead_id, status)
   end
 
   local parsed_id = M.parse_id(bead_id)
+  if not parsed_id then
+    return nil, "Invalid bead ID format"
+  end
   local cmd_args = "update " .. parsed_id .. " --status " .. status .. " --json"
 
   local result, err = run_bd_command(cmd_args)
