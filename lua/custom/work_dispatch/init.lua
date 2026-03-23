@@ -592,8 +592,8 @@ function M.agent.spawn(worktree_info, agent_name)
   local full_cmd = string.format(
     "NVIM_LISTEN_ADDRESS=%s BEAD_ID=%s WORKTREE_ID=%s %s",
     vim.fn.shellescape(nvim_socket),
-    worktree_info.bead_id or "",
-    worktree_info.id or "",
+    vim.fn.shellescape(worktree_info.bead_id or ""),
+    vim.fn.shellescape(worktree_info.id or ""),
     cmd
   )
 
