@@ -248,9 +248,15 @@ function M.set_needs_input(id, needs_input)
   }
 
   if needs_input then
+    -- When setting needs_input, update status
     updates.status = "needs_input"
   else
-    updates.status = "running"
+    -- When clearing needs_input, only update status if currently needs_input
+    -- This preserves "done", "rejected", etc.
+    local entry = M.get(id)
+    if entry and entry.status == "needs_input" then
+      updates.status = "running"
+    end
   end
 
   return M.update(id, updates)
