@@ -1,5 +1,13 @@
 local M = {}
 
+local function sanitize_url(url)
+  -- Remove or escape shell metacharacters to prevent command injection
+  -- Characters to sanitize: ; & | ` $ and command separators
+  return url:gsub('[;&|`$%%!%[%]%{%}]', function(char)
+    return '\\' .. char
+  end)
+end
+
 local function get_open_cmd()
   if vim.fn.has('mac') == 1 then
     return 'open'
@@ -15,13 +23,14 @@ local function get_open_cmd()
 end
 
 local function open_url(url)
+  local safe_url = sanitize_url(url)
   local cmd = get_open_cmd()
   local shell_cmd
 
   if cmd == 'start' then
-    shell_cmd = string.format('start "" "%s"', url)
+    shell_cmd = string.format('start "" "%s"', safe_url)
   else
-    shell_cmd = string.format('%s "%s"', cmd, url)
+    shell_cmd = string.format('%s "%s"', cmd, safe_url)
   end
 
   vim.fn.jobstart(shell_cmd, { detach = true })

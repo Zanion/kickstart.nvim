@@ -40,7 +40,10 @@ local function parse_args(args)
     elseif part == '--compact' then
       opts.format = 'compact'
     elseif part:match('^%a') and not part:match('^%-') then
-      opts.id = part
+      -- Validate ID format (alphanumeric, reasonable length)
+      if #part <= 50 and part:match('^%w[%w%.%-_]+$') then
+        opts.id = part
+      end
     end
   end
 
