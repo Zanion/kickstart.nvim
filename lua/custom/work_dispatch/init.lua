@@ -86,7 +86,12 @@ function M.setup(opts)
     agent_mod.setup()
   end
 
-  setup_terminal_close_handler()
+  -- Terminal close handler setup (wrapped to handle function definition order)
+  if _G.setup_terminal_close_handler then
+    _G.setup_terminal_close_handler()
+  else
+    -- Function not yet defined, will be set up on first agent spawn
+  end
 
   vim.api.nvim_create_user_command("WorkDispatch", function()
     M.pick_dispatch()
@@ -569,6 +574,9 @@ local function setup_terminal_close_handler()
     end
   end)
 end
+
+-- Make available globally for setup to call
+_G.setup_terminal_close_handler = setup_terminal_close_handler
 
 M.agent = {}
 

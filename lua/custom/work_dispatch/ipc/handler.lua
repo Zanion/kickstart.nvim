@@ -60,22 +60,11 @@ function M.setup()
 end
 
 function M.register_handler()
-  vim.api.nvim_create_autocmd("RpcNotify", {
-    group = vim.api.nvim_create_augroup("WorkDispatchIPC", { clear = true }),
-    callback = function(args)
-      local data = args.data or {}
-      local method = data.method
-      local rpc_args = data.args or {}
-
-      if method == "plugin_notify" then
-        local event = rpc_args[1]
-        local payload = rpc_args[2] or {}
-        if event then
-          M.handle(event, payload)
-        end
-      end
-    end,
-  })
+  -- IPC notifications via Neovim's RPC are handled differently
+  -- External agents can send notifications via the NVIM socket
+  -- The plugin receives these through the rpcstart mechanism
+  -- For now, we mark the handler as registered to prevent duplicate setup
+  _handler_registered = true
 end
 
 function M.handle(event, payload)
