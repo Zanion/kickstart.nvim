@@ -6,36 +6,9 @@ local conf = require('telescope.config').values
 local action_state = require('telescope.actions.state')
 
 local config = require('beads.config')
-local Job = require('plenary.job')
+local util = require('beads.util')
 
 local M = {}
-
-local function parse_json_output(output)
-  local ok, result = pcall(vim.json.decode, output)
-  if not ok then
-    vim.notify('Failed to parse bd output: ' .. result, vim.log.levels.ERROR)
-    return {}
-  end
-  return result
-end
-
-local function run_bd_command(args, callback)
-  local cfg = config.get()
-  local cmd = cfg.binary
-  table.insert(args, 1, cmd)
-  table.insert(args, '--json')
-
-  Job:new({
-    command = cmd,
-    args = args,
-    on_stdout = function(_, output)
-      callback(output)
-    end,
-    on_stderr = function(_, err)
-      vim.notify('bd error: ' .. err, vim.log.levels.WARN)
-    end,
-  }):start()
-end
 
 local function make_entry(issue)
   return {
@@ -55,26 +28,6 @@ local function open_in_browser(prompt_bufnr)
   local selection = action_state.get_selected_entry(prompt_bufnr)
   Actions.close(prompt_bufnr)
   vim.cmd(string.format(':BdOpen %s', selection.value.id))
-end
-
-local function get_issues_list(args, callback)
-  local output = {}
-  local job = Job:new({
-    command = config.get().binary,
-    args = vim.list_extend({ '--json' }, args),
-    on_stdout = function(_, line)
-      table.insert(output, line)
-    end,
-    on_stderr = function(_, err)
-      vim.notify('bd error: ' .. err, vim.log.levels.WARN)
-    end,
-    on_exit = function()
-      local combined = table.concat(output, '')
-      local issues = parse_json_output(combined)
-      callback(issues)
-    end,
-  })
-  job:start()
 end
 
 function M.list()
