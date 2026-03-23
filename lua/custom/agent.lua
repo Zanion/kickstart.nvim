@@ -32,32 +32,13 @@ M.default_agents = {
     end,
     terminal_matcher = "gemini",
   },
-  -- cursor = {
-  --   name = "Cursor",
-  --   icon = "󱎂 ",
-  --   cmd = "cursor-agent",
-  --   nvim_env = true,
-  --   list_cmd = { "cursor-agent", "ls" },
-  --   resume_pattern = "cursor-agent --resume=%s",
-  --   parse_fn = function(stdout)
-  --     local sessions = {}
-  --     for line in stdout:gmatch("[^\r\n]+") do
-  --       local id = line:match("^%s*([a-f0-9%-]+)")
-  --       if id then
-  --         local display = line:gsub("^%s*[a-f0-9%-]+%s*", "")
-  --         if display and display ~= "" then
-  --           table.insert(sessions, {
-  --             id = id,
-  --             text = display,
-  --             cmd = "cursor-agent --resume=" .. id,
-  --           })
-  --         end
-  --       end
-  --     end
-  --     return sessions
-  --   end,
-  --   terminal_matcher = "cursor",
-  -- },
+  cursor = {
+    name = "Cursor",
+    icon = "󱎂 ",
+    cmd = "agent",
+    nvim_env = true,
+    terminal_matcher = "agent",
+  },
   claude = {
     name = "Claude",
     icon = "󱃔 ",
@@ -196,6 +177,20 @@ function M.refresh_sessions(agent_name, callback)
   M.is_refreshing[agent_name] = true
 
   local agent = M.agents[agent_name]
+  if not agent.list_cmd then
+    vim.schedule(function()
+      M.is_refreshing[agent_name] = false
+      M.session_cache[agent_name] = {}
+      if M.callbacks[agent_name] then
+        for _, cb in ipairs(M.callbacks[agent_name]) do
+          cb({})
+        end
+        M.callbacks[agent_name] = {}
+      end
+    end)
+    return
+  end
+
   vim.system(agent.list_cmd, { text = true }, function(obj)
     vim.schedule(function()
       M.is_refreshing[agent_name] = false
@@ -238,6 +233,15 @@ function M.toggle_agent(agent_name)
     return
   end
 
+  local agent = M.agents[agent_name]
+  if agent_name == "cursor" then
+    local nvim_env = agent.nvim_env and ("env NVIM=" .. vim.fn.shellescape(vim.v.servername) .. " ") or ""
+    require("snacks").terminal.toggle(nvim_env .. "agent agent", {
+      win = { style = "float", border = "rounded" },
+    })
+    return
+  end
+
   M.pick_session(agent_name)
 end
 
@@ -247,12 +251,20 @@ function M.pick_session(agent_name)
     return
   end
 
-  local sessions = M.session_cache[agent_name] or {}
-
   local agent = M.agents[agent_name]
   if not agent then
     return
   end
+
+  if agent_name == "cursor" then
+    local nvim_env = agent.nvim_env and ("env NVIM=" .. vim.fn.shellescape(vim.v.servername) .. " ") or ""
+    require("snacks").terminal.toggle(nvim_env .. "agent ls", {
+      win = { style = "float", border = "rounded" },
+    })
+    return
+  end
+
+  local sessions = M.session_cache[agent_name] or {}
 
   local notify = require("notify")
   local loading = notify("Fetching " .. agent.name .. " sessions...", vim.log.levels.INFO, {

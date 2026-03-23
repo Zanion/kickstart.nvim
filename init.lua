@@ -920,8 +920,8 @@ require('lazy').setup({
 
   { -- In-editor Markdown reader/renderer
     'MeanderingProgrammer/render-markdown.nvim',
-    dependencies = { 'nvim-treesitter/nvim-treesitter', 'echasnovski/mini.icons' },
-    branch = 'master',
+    dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-mini/mini.icons' },
+    branch = 'main',
     opts = {},
   },
 
