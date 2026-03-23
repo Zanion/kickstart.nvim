@@ -4,6 +4,43 @@ local registry = require("custom.work_dispatch.registry")
 
 local _server_started = false
 
+local VALID_EVENTS = {
+  ["needs_input"] = true,
+  ["status"] = true,
+  ["complete"] = true,
+  ["error"] = true,
+}
+
+local MAX_STRING_LENGTH = 4096
+
+local function sanitize_string(value)
+  if type(value) ~= "string" then
+    return nil
+  end
+  if #value > MAX_STRING_LENGTH then
+    value = value:sub(1, MAX_STRING_LENGTH)
+  end
+  return value:gsub("[\x00-\x08\x0b\x0c\x0e-\x1f]", "")
+end
+
+local function validate_payload(event, payload)
+  if type(payload) ~= "table" then
+    return false, "Payload must be a table"
+  end
+
+  local worktree_id = payload.worktree_id
+  if not worktree_id or type(worktree_id) ~= "string" or worktree_id == "" then
+    return false, "Missing or invalid worktree_id"
+  end
+
+  local entry = registry.get(worktree_id)
+  if not entry then
+    return false, "Unknown worktree_id: " .. worktree_id
+  end
+
+  return true
+end
+
 function M.setup()
   if _server_started then
     return
@@ -42,6 +79,13 @@ function M.register_handler()
 end
 
 function M.handle(event, payload)
+  if not event or type(event) ~= "string" or not VALID_EVENTS[event] then
+    vim.notify("IPC: Unknown or invalid event type: " .. tostring(event), vim.log.levels.WARN, {
+      title = "Work Dispatch IPC",
+    })
+    return
+  end
+
   if not payload or type(payload) ~= "table" then
     vim.notify("IPC: Invalid payload for event " .. tostring(event), vim.log.levels.WARN, {
       title = "Work Dispatch IPC",
@@ -49,29 +93,42 @@ function M.handle(event, payload)
     return
   end
 
+  local valid, err = validate_payload(event, payload)
+  if not valid then
+    vim.notify("IPC: Validation failed: " .. err, vim.log.levels.WARN, {
+      title = "Work Dispatch IPC",
+    })
+    return
+  end
+
+  local safe_payload = {
+    worktree_id = payload.worktree_id,
+    message = sanitize_string(payload.message),
+    summary = sanitize_string(payload.summary),
+    level = sanitize_string(payload.level),
+    options = payload.options,
+    files_changed = type(payload.files_changed) == "table" and payload.files_changed or nil,
+  }
+
   if event == "needs_input" then
-    M.update_registry(payload.worktree_id, event, payload)
-    M.show_notification(payload)
+    M.update_registry(safe_payload.worktree_id, event, safe_payload)
+    M.show_notification(safe_payload)
     M.refresh_picker()
   elseif event == "status" then
-    M.update_registry(payload.worktree_id, event, payload)
-    vim.notify(payload.message or "Status update", vim.log.levels.INFO, {
+    M.update_registry(safe_payload.worktree_id, event, safe_payload)
+    vim.notify(safe_payload.message or "Status update", vim.log.levels.INFO, {
       title = "Agent Status",
     })
   elseif event == "complete" then
-    M.update_registry(payload.worktree_id, event, payload)
-    M.show_notification(payload)
+    M.update_registry(safe_payload.worktree_id, event, safe_payload)
+    M.show_notification(safe_payload)
     M.refresh_picker()
   elseif event == "error" then
-    M.update_registry(payload.worktree_id, event, payload)
-    vim.notify(payload.message or "Agent error", vim.log.levels.ERROR, {
+    M.update_registry(safe_payload.worktree_id, event, safe_payload)
+    vim.notify(safe_payload.message or "Agent error", vim.log.levels.ERROR, {
       title = "Agent Error",
     })
     M.refresh_picker()
-  else
-    vim.notify("IPC: Unknown event type: " .. tostring(event), vim.log.levels.WARN, {
-      title = "Work Dispatch IPC",
-    })
   end
 end
 
