@@ -4,6 +4,20 @@ local config = {
   cmd_prefix = "bd",
 }
 
+-- Valid status values for validation
+local VALID_STATUSES = {
+  ["ready"] = true,
+  ["in_progress"] = true,
+  ["claimed"] = true,
+  ["blocked"] = true,
+  ["needs_review"] = true,
+  ["done"] = true,
+  ["implemented"] = true,
+  ["cancelled"] = true,
+  ["duplicate"] = true,
+  ["rejected"] = true,
+}
+
 function M.setup(opts)
   if opts and opts.cmd_prefix then
     config.cmd_prefix = opts.cmd_prefix
@@ -47,6 +61,13 @@ function M.get_ready()
     })
     return {}
   end
+  
+  if not beads or (type(beads) == "table" and #beads == 0) then
+    vim.notify("No ready beads found", vim.log.levels.DEBUG, {
+      title = "Work Dispatch",
+    })
+  end
+  
   return beads or {}
 end
 
@@ -73,6 +94,15 @@ function M.update_status(bead_id, status)
     return nil, "Invalid bead ID"
   end
 
+  if not status or status == "" then
+    return nil, "Invalid status"
+  end
+
+  -- Validate status for injection
+  if not status:match("^[%w_%-]+$") then
+    return nil, "Invalid status format"
+  end
+
   local parsed_id = M.parse_id(bead_id)
   local cmd_args
 
@@ -86,7 +116,15 @@ function M.update_status(bead_id, status)
     cmd_args = "close " .. parsed_id .. ' --reason "Cancelled" --json'
   elseif status == "duplicate" then
     cmd_args = "close " .. parsed_id .. ' --reason "Duplicate" --json'
+  elseif status == "rejected" then
+    cmd_args = "close " .. parsed_id .. ' --reason "Rejected" --json'
   else
+    -- Validate arbitrary status
+    if not VALID_STATUSES[status] then
+      vim.notify("Warning: Non-standard status '" .. status .. "' used", vim.log.levels.WARN, {
+        title = "Work Dispatch",
+      })
+    end
     cmd_args = "update " .. parsed_id .. " --status " .. status .. " --json"
   end
 
@@ -161,7 +199,12 @@ function M.create_context(worktree_path, bead)
 
   local write_result = vim.fn.writefile(lines, context_path)
   if write_result ~= 0 then
-    return nil, "Failed to write context file"
+    -- Get more specific error
+    local err_msg = "Failed to write context file to " .. context_path
+    if vim.fn.isdirectory(vim.fn.fnamemodify(context_path, ":h")) == 0 then
+      err_msg = err_msg .. " - parent directory not writable"
+    end
+    return nil, err_msg
   end
 
   return true, nil
@@ -251,5 +294,90 @@ function M.is_available()
   local output = vim.fn.system(cmd)
   return vim.v.shell_error == 0
 end
+
+-- Required by SR-004: Set arbitrary status on bead
+function M.set_status(bead_id, status)
+  if not bead_id or bead_id == "" then
+    return nil, "Invalid bead ID"
+  end
+
+  if not status or status == "" then
+    return nil, "Invalid status"
+  end
+
+  -- Validate status for injection
+  if not status:match("^[%w_%-]+$") then
+    return nil, "Invalid status format"
+  end
+
+  local parsed_id = M.parse_id(bead_id)
+  local cmd_args = "update " .. parsed_id .. " --status " .. status .. " --json"
+
+  local result, err = run_bd_command(cmd_args)
+
+  if err then
+    vim.notify("Failed to set bead status " .. bead_id .. ": " .. err.message, vim.log.levels.ERROR, {
+      title = "Work Dispatch",
+    })
+    return nil, err.message
+  end
+
+  return true, nil
+end
+
+-- Required by SR-006: Read back bead context from worktree
+function M.get_context(worktree_path)
+  if not worktree_path or worktree_path == "" then
+    return nil, "Invalid worktree path"
+  end
+
+  local context_path = vim.fn.joinpath(worktree_path, "BEADS_CONTEXT.md")
+
+  if vim.fn.filereadable(context_path) == 0 then
+    return nil, "Context file not found"
+  end
+
+  local lines = vim.fn.readfile(context_path)
+  if not lines or #lines == 0 then
+    return nil, "Empty context file"
+  end
+
+  local content = table.concat(lines, "\n")
+
+  -- Parse basic fields from the context markdown
+  local bead = {}
+
+  -- Extract bead ID from "# Bead: {id}"
+  local id_match = content:match("# Bead: ([^\n]+)")
+  bead.id = id_match and id_match:match("^%s*(.-)%s*$") or nil
+
+  -- Extract title from "## Title\n{title}"
+  local title_match = content:match("## Title\n([^\n]+)")
+  bead.title = title_match and title_match:match("^%s*(.-)%s*$") or nil
+
+  -- Extract priority from "## Priority\n{priority}"
+  local priority_match = content:match("## Priority\n([^\n]+)")
+  bead.priority = priority_match and tonumber(priority_match:match("%d+")) or nil
+
+  -- Extract type from "## Type\n{type}"
+  local type_match = content:match("## Type\n([^\n]+)")
+  bead.issue_type = type_match and type_match:match("^%s*(.-)%s*$") or nil
+
+  -- Extract description
+  local desc_start = content:find("## Description\n")
+  if desc_start then
+    local desc_section = content:sub(desc_start + 15)
+    local _, desc_end = desc_section:find("\n---")
+    if desc_end then
+      bead.description = desc_section:sub(1, desc_end - 1):match("^%s*(.-)%s*$")
+    end
+  end
+
+  return bead, nil
+end
+
+-- API aliases for consistency with requirements
+M.show = M.get_bead
+M.ready = M.get_ready
 
 return M
