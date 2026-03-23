@@ -10,7 +10,9 @@ local function generate_session_id()
 end
 
 local function generate_socket_path(session_id)
-  return "/tmp/nvim-" .. session_id .. ".sock"
+  -- Use XDG_RUNTIME_DIR if available for better security
+  local runtime_dir = vim.env.XDG_RUNTIME_DIR or "/tmp"
+  return runtime_dir .. "/nvim-" .. session_id .. ".sock"
 end
 
 local function get_snacks()
@@ -457,6 +459,13 @@ function M.load_beads()
   return M.beads
 end
 
+-- Socket cleanup function
+local function cleanup_socket(session)
+  if session and session.nvim_socket and vim.fn.filereadable(session.nvim_socket) == 1 then
+    vim.fn.delete(session.nvim_socket)
+  end
+end
+
 local function setup_terminal_close_handler()
   local snacks = get_snacks()
   if not snacks then
@@ -465,13 +474,16 @@ local function setup_terminal_close_handler()
 
   vim.schedule(function()
     local term = snacks.terminal
-    if term and term.listeners and term.listeners.close then
+    -- Skip if handler already set up to avoid duplicate registration
+    if term and term.on_close and term.on_close._work_dispatch_setup then
       return
     end
 
     local close_handler = function(term_info)
       for session_id, session in pairs(sessions) do
         if session.terminal_id == term_info.id then
+          -- Clean up socket on unexpected close
+          cleanup_socket(session)
           registry.update(session.worktree_id, {
             status = "paused",
           })
@@ -489,6 +501,8 @@ local function setup_terminal_close_handler()
           old_handler(...)
         end
       end
+      -- Mark as setup to prevent duplicate registration
+      term.on_close._work_dispatch_setup = true
     end
   end)
 end
@@ -594,6 +608,12 @@ function M.agent.focus(session_id)
   return nil, "Terminal not found"
 end
 
+local function cleanup_socket(session)
+  if session and session.nvim_socket then
+    vim.fn.delete(session.nvim_socket)
+  end
+end
+
 function M.agent.terminate(session_id)
   local session = sessions[session_id]
   if not session then
@@ -609,6 +629,9 @@ function M.agent.terminate(session_id)
       end
     end
   end
+
+  -- Clean up socket file
+  cleanup_socket(session)
 
   sessions[session_id] = nil
 
