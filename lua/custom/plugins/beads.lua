@@ -1,6 +1,7 @@
 return {
   -- Beads plugin (bd CLI integration via Telescope)
-  -- Plugin files are in lua/beads/ which is on the runtime path
+  -- Local plugin: lua/beads/ is part of the config
+  dir = vim.fn.stdpath('config'),
   name = 'beads',
   lazy = false,
   dependencies = {
@@ -8,9 +9,6 @@ return {
     'nvim-lua/plenary.nvim',
   },
   config = function()
-    local ok, beads = pcall(require, 'beads')
-    if ok then
-      beads.setup({})
-    end
+    require('beads').setup({})
   end,
 }
