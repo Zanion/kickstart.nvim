@@ -44,7 +44,7 @@ local function entry_maker(entry)
   return {
     value = entry,
     display = string.format(
-      "%s %-8s │ %-6s │ %-30s │ %s %s",
+      "%s %-8s │ %-12s │ %-30s │ %s %s",
       icon,
       entry.agent or "unknown",
       entry.bead_id or "",
@@ -284,17 +284,6 @@ local function clear_filters()
   M.open()
 end
 
-local function create_preview_buf(terminal_buf)
-  local preview_buf = vim.api.nvim_create_buf(false, true)
-  if terminal_buf and vim.api.nvim_buf_is_valid(terminal_buf) then
-    local lines = vim.api.nvim_buf_get_lines(terminal_buf, 0, -1, false)
-    if #lines > 0 then
-      vim.api.nvim_buf_set_lines(preview_buf, 0, -1, false, lines)
-    end
-  end
-  return preview_buf
-end
-
 function M.open()
   local worktrees = get_all_worktrees()
   local filtered = apply_filters(worktrees)
@@ -319,6 +308,64 @@ function M.open()
   local actions = require("telescope.actions")
   local action_state = require("telescope.actions.state")
 
+  -- Get snacks for terminal access
+  local snacks = nil
+  local ok, snacks_mod = pcall(require, "snacks")
+  if ok then
+    snacks = snacks_mod
+  end
+
+  -- Create terminal previewer
+  local previewer = nil
+  if snacks and snacks.terminal then
+    local previewers = require("telescope.previewers")
+    previewer = previewers.new_buffer_previewer({
+      get_buffer_by_name = function(_, entry)
+        return "worktree_preview:" .. entry.value.id
+      end,
+      define_preview = function(self, entry)
+        local wt = entry.value
+        
+        -- Find terminal buffer for this worktree
+        local terminal_buf = nil
+        if snacks then
+          for _, term in pairs(snacks.terminal.list()) do
+            if term.buf and vim.api.nvim_buf_is_valid(term.buf) then
+              local buf_name = vim.api.nvim_buf_get_name(term.buf)
+              if buf_name:match(wt.name) or buf_name:match(wt.agent or "") then
+                terminal_buf = term.buf
+                break
+              end
+            end
+          end
+        end
+        
+        -- Get terminal content
+        local lines = {}
+        if terminal_buf and vim.api.nvim_buf_is_valid(terminal_buf) then
+          lines = vim.api.nvim_buf_get_lines(terminal_buf, 0, -1, false)
+        end
+        
+        if #lines == 0 then
+          lines = { "Terminal not running", "Press <CR> to start agent" }
+        end
+        
+        -- Take last 100 lines
+        local max_lines = 100
+        if #lines > max_lines then
+          lines = vim.list_slice(lines, #lines - max_lines + 1, #lines)
+        end
+        
+        -- Add header
+        local header = {
+          "=== " .. (wt.agent or "agent") .. " | " .. (wt.bead_id or "N/A") .. " | " .. (wt.status or "unknown") .. " ===",
+          "",
+        }
+        vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, vim.list_extend(header, lines))
+      end,
+    })
+  end
+
   picker_instance = pickers.new({}, {
     prompt_title = "Active Agents",
     finder = finders.new_table {
@@ -326,7 +373,7 @@ function M.open()
       entry_maker = entry_maker,
     },
     sorter = conf.generic_sorter({}),
-    previewer = nil,
+    previewer = previewer,
     attach_mappings = function(prompt_bufnr, map)
       map("i", "<CR>", focus_agent)
       map("n", "<CR>", focus_agent)
@@ -343,10 +390,15 @@ function M.open()
       map("i", "q", actions.close)
       map("n", "q", actions.close)
 
+      -- Filter mappings (both insert and normal mode)
       map("i", "<leader>fa", filter_by_agent)
+      map("n", "<leader>fa", filter_by_agent)
       map("i", "<leader>fs", filter_by_status)
+      map("n", "<leader>fs", filter_by_status)
       map("i", "<leader>fb", filter_by_bead)
+      map("n", "<leader>fb", filter_by_bead)
       map("i", "<leader>fc", clear_filters)
+      map("n", "<leader>fc", clear_filters)
 
       return true
     end,
