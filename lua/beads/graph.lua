@@ -51,7 +51,7 @@ local function parse_args(args)
 end
 
 local function build_command(opts)
-  local cmd = { 'bd', 'graph' }
+  local cmd = { config.get().binary, 'graph' }
 
   if opts.all then
     table.insert(cmd, '--all')

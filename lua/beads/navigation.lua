@@ -11,15 +11,12 @@ end
 local function get_open_cmd()
   if vim.fn.has('mac') == 1 then
     return 'open'
-  elseif vim.fn.has('unix') == 1 then
-    if vim.fn.executable('xdg-open') == 1 then
-      return 'xdg-open'
-    end
-    return 'xdg-open'
   elseif vim.fn.has('win32') == 1 or vim.fn.has('win64') == 1 then
     return 'start'
+  else
+    -- Unix/Linux - prefer xdg-open
+    return 'xdg-open'
   end
-  return 'xdg-open'
 end
 
 local function open_url(url)
