@@ -1,10 +1,12 @@
 return {
-  'beads.nvim',
+  -- Beads plugin (bd CLI integration via Telescope)
+  dir = '/home/zanion/dotfiles/nvim/.config/nvim/.worktrees/feature-beads-plugin',
+  name = 'beads',
   lazy = false,
-  init = function()
-    local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ':p:h')
-    package.path = package.path .. ';' .. plugin_dir .. '/?.lua;' .. plugin_dir .. '/?/init.lua'
-  end,
+  dependencies = {
+    'nvim-telescope/telescope.nvim',
+    'nvim-lua/plenary.nvim',
+  },
   config = function()
     require('beads').setup({})
   end,

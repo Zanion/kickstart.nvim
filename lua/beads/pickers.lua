@@ -2,11 +2,13 @@ local telescope = require('telescope')
 local pickers = require('telescope.pickers')
 local Actions = require('telescope.actions')
 local Finders = require('telescope.finders')
+local Previewers = require('telescope.previewers')
 local conf = require('telescope.config').values
 local action_state = require('telescope.actions.state')
 
 local config = require('beads.config')
 local util = require('beads.util')
+local Job = require('plenary.job')
 
 local M = {}
 
@@ -18,135 +20,147 @@ local function make_entry(issue)
   }
 end
 
-local function open_preview(prompt_bufnr)
-  local selection = action_state.get_selected_entry(prompt_bufnr)
-  Actions.close(prompt_bufnr)
-  vim.cmd(string.format(':BdShow %s', selection.value.id))
+--- Format issue for display
+--- @param issue table Issue object
+--- @return table Lines for display
+local function format_issue(issue)
+  local lines = {}
+
+  table.insert(lines, string.format('ID: %s', issue.id))
+  table.insert(lines, string.format('Title: %s', issue.title))
+  table.insert(lines, string.format('Type: %s', issue.issue_type))
+  table.insert(lines, string.format('State: %s', issue.status))
+
+  if issue.labels and #issue.labels > 0 then
+    table.insert(lines, 'Labels: ' .. table.concat(issue.labels, ', '))
+  end
+
+  table.insert(lines, '')
+
+  if issue.description then
+    table.insert(lines, 'Description:')
+    table.insert(lines, issue.description)
+    table.insert(lines, '')
+  end
+
+  if issue.dependencies and #issue.dependencies > 0 then
+    table.insert(lines, 'Dependencies:')
+    for _, dep in ipairs(issue.dependencies) do
+      table.insert(lines, string.format('  - %s (%s)', dep.depends_on_id, dep.type))
+    end
+  end
+
+  if issue.dependents and #issue.dependents > 0 then
+    table.insert(lines, '')
+    table.insert(lines, 'Dependents (blocked by this):')
+    for _, dep in ipairs(issue.dependents) do
+      table.insert(lines, string.format('  - %s (%s)', dep.id, dep.title or ''))
+    end
+  end
+
+  return lines
 end
 
-local function open_in_browser(prompt_bufnr)
-  local selection = action_state.get_selected_entry(prompt_bufnr)
-  Actions.close(prompt_bufnr)
-  vim.cmd(string.format(':BdOpen %s', selection.value.id))
+--- Create a custom previewer for issues
+--- @return table Telescope previewer
+local function issue_previewer()
+  return Previewers.new_buffer_previewer({
+    title = 'Issue Preview',
+    define_preview = function(self, entry)
+      local issue = entry.value
+      local lines = format_issue(issue)
+
+      vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+      vim.api.nvim_buf_set_option(self.state.bufnr, 'filetype', 'markdown')
+    end,
+  })
+end
+
+--- Run a bd command and return parsed JSON array
+--- @param args table Command arguments
+--- @param callback function Callback with parsed issues
+local function run_bd_json(args, callback)
+  local output = {}
+  local job = Job:new({
+    command = config.get().binary,
+    args = vim.list_extend(args, { '--json' }),
+    on_stdout = function(_, line)
+      table.insert(output, line)
+    end,
+    on_stderr = function(_, err)
+      vim.notify('bd error: ' .. err, vim.log.levels.WARN)
+    end,
+    on_exit = vim.schedule_wrap(function()
+      local combined = table.concat(output, '')
+      local ok, result = pcall(vim.json.decode, combined)
+      if ok and type(result) == 'table' then
+        callback(result)
+      else
+        vim.notify('Failed to parse bd output', vim.log.levels.ERROR)
+        callback({})
+      end
+    end),
+  })
+  job:start()
+end
+
+--- Create a picker with a finder from pre-fetched data
+--- @param opts table Picker options
+--- @param issues table Array of issues
+local function create_picker(opts, issues)
+  local entries = {}
+  for _, issue in ipairs(issues) do
+    table.insert(entries, make_entry(issue))
+  end
+
+  pickers.new({}, {
+    prompt_title = opts.prompt_title,
+    finder = Finders.new_table({
+      results = entries,
+      entry_maker = function(entry)
+        return entry
+      end,
+    }),
+    sorter = conf.generic_sorter(),
+    previewer = issue_previewer(),
+  }):find()
 end
 
 function M.list()
-  pickers.new({}, {
-    prompt_title = 'Beads - All Issues',
-    finder = Finders.new_oneshot_job({
-      command = { config.get().binary, 'list', '--json' },
-      entry_maker = function(entry)
-        local ok, issue = pcall(vim.json.decode, entry)
-        if ok then
-          return make_entry(issue)
-        end
-        return nil
-      end,
-    }),
-    sorter = conf.generic_sorter(),
-    attach_mappings = function(prompt_bufnr, map)
-      map('i', '<CR>', open_in_browser)
-      map('i', config.get().keymaps.show, open_preview)
-      return true
-    end,
-  }):find()
+  run_bd_json({ 'list' }, function(issues)
+    vim.schedule(function()
+      create_picker({ prompt_title = 'Beads - All Issues' }, issues)
+    end)
+  end)
 end
 
 function M.ready()
-  pickers.new({}, {
-    prompt_title = 'Beads - Ready Issues',
-    finder = Finders.new_oneshot_job({
-      command = { config.get().binary, 'ready', '--json' },
-      entry_maker = function(entry)
-        local ok, issue = pcall(vim.json.decode, entry)
-        if ok then
-          return make_entry(issue)
-        end
-        return nil
-      end,
-    }),
-    sorter = conf.generic_sorter(),
-    attach_mappings = function(prompt_bufnr, map)
-      map('i', '<CR>', open_in_browser)
-      map('i', config.get().keymaps.show, open_preview)
-      return true
-    end,
-  }):find()
+  run_bd_json({ 'ready' }, function(issues)
+    vim.schedule(function()
+      create_picker({ prompt_title = 'Beads - Ready Issues' }, issues)
+    end)
+  end)
 end
 
 function M.blocked()
-  pickers.new({}, {
-    prompt_title = 'Beads - Blocked Issues',
-    finder = Finders.new_oneshot_job({
-      command = { config.get().binary, 'blocked', '--json' },
-      entry_maker = function(entry)
-        local ok, issue = pcall(vim.json.decode, entry)
-        if ok then
-          return make_entry(issue)
-        end
-        return nil
-      end,
-    }),
-    sorter = conf.generic_sorter(),
-    attach_mappings = function(prompt_bufnr, map)
-      map('i', '<CR>', open_in_browser)
-      map('i', config.get().keymaps.show, open_preview)
-      return true
-    end,
-  }):find()
+  run_bd_json({ 'blocked' }, function(issues)
+    vim.schedule(function()
+      create_picker({ prompt_title = 'Beads - Blocked Issues' }, issues)
+    end)
+  end)
 end
 
 function M.search()
-  pickers.new({}, {
-    prompt_title = 'Beads - Search',
-    finder = Finders.new_job({
-      command = function(prompt)
-        return { config.get().binary, 'search', prompt, '--json' }
-      end,
-      entry_maker = function(entry)
-        local ok, issue = pcall(vim.json.decode, entry)
-        if ok then
-          return make_entry(issue)
-        end
-        return nil
-      end,
-      maximum_results = 100,
-    }),
-    sorter = conf.generic_sorter(),
-    attach_mappings = function(prompt_bufnr, map)
-      map('i', '<CR>', open_in_browser)
-      map('i', config.get().keymaps.show, open_preview)
-      return true
-    end,
-
-  }):find()
-end
-
-function M.query()
-  vim.ui.input({ prompt = 'Enter BD query expression: ' }, function(query)
+  vim.ui.input({ prompt = 'Search beads: ' }, function(query)
     if not query or query == '' then
       return
     end
 
-    pickers.new({}, {
-      prompt_title = 'Beads - Query: ' .. query,
-      finder = Finders.new_oneshot_job({
-        command = { config.get().binary, 'query', query, '--json' },
-        entry_maker = function(entry)
-          local ok, issue = pcall(vim.json.decode, entry)
-          if ok then
-            return make_entry(issue)
-          end
-          return nil
-        end,
-      }),
-      sorter = conf.generic_sorter(),
-      attach_mappings = function(prompt_bufnr, map)
-        map('i', '<CR>', open_in_browser)
-        map('i', config.get().keymaps.show, open_preview)
-        return true
-      end,
-    }):find()
+    run_bd_json({ 'search', query }, function(issues)
+      vim.schedule(function()
+        create_picker({ prompt_title = 'Beads - Search: ' .. query }, issues)
+      end)
+    end)
   end)
 end
 
