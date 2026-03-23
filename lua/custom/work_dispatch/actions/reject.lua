@@ -16,18 +16,18 @@ function M.validate(worktree_id)
   local worktree = registry.get(worktree_id)
 
   if not worktree then
-    return false, "Worktree not found"
+    return false, "Worktree not found", nil
   end
 
   if worktree.status == "rejected" then
-    return false, "Work was already rejected"
+    return false, "Work was already rejected", nil
   end
 
   if worktree.status == "done" then
-    return false, "Cannot reject completed work"
+    return false, "Cannot reject completed work", nil
   end
 
-  return true
+  return true, nil, worktree
 end
 
 function M.kill_terminal(worktree_id)
@@ -106,21 +106,27 @@ function M.notify(reason)
 end
 
 function M.execute(worktree_id, reason)
-  local valid, err = M.validate(worktree_id)
+  -- Validate returns the worktree object
+  local valid, err, worktree = M.validate(worktree_id)
   if not valid then
     return { success = false, error = err }
   end
 
-  local worktree = registry.get(worktree_id)
-  if not worktree then
-    return { success = false, error = "Worktree not found" }
+  -- Use worktree from validate instead of redundant registry.get()
+  local kill_ok = M.kill_terminal(worktree_id)
+  
+  -- Check bead update (don't fail整个 reject, but log warning)
+  local bead_ok = M.update_bead(worktree_id)
+  if not bead_ok then
+    vim.notify("Warning: Failed to update bead status", vim.log.levels.WARN, {
+      title = "Work Dispatch",
+    })
   end
 
-  M.kill_terminal(worktree_id)
-
-  M.update_bead(worktree_id)
-
-  M.update_registry(worktree_id, reason)
+  local reg_ok = M.update_registry(worktree_id, reason)
+  if not reg_ok then
+    return { success = false, error = "Failed to update registry" }
+  end
 
   M.notify(reason)
 
