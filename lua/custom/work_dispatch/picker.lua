@@ -1,6 +1,7 @@
 local M = {}
 
 local registry = require("custom.work_dispatch.registry")
+local preview = require("custom.work_dispatch.preview")
 
 local agent_icons = {
   gemini = "🤖",
@@ -323,63 +324,32 @@ function M.open()
   local actions = require("telescope.actions")
   local action_state = require("telescope.actions.state")
 
-  -- Get snacks for terminal access
-  local snacks = nil
-  local ok, snacks_mod = pcall(require, "snacks")
-  if ok then
-    snacks = snacks_mod
-  end
-
-  -- Create terminal previewer
+  -- Create terminal previewer with live refresh
   local previewer = nil
-  if snacks and snacks.terminal then
-    local previewers = require("telescope.previewers")
-    previewer = previewers.new_buffer_previewer({
-      get_buffer_by_name = function(_, entry)
-        return "worktree_preview:" .. entry.value.id
-      end,
-      define_preview = function(self, entry)
-        local wt = entry.value
-        
-        -- Find terminal buffer for this worktree
-        local terminal_buf = nil
-        if snacks then
-          for _, term in pairs(snacks.terminal.list()) do
-            if term.buf and vim.api.nvim_buf_is_valid(term.buf) then
-              local buf_name = vim.api.nvim_buf_get_name(term.buf)
-              if buf_name:match(wt.name) or buf_name:match(wt.agent or "") then
-                terminal_buf = term.buf
-                break
-              end
-            end
-          end
-        end
-        
-        -- Get terminal content
-        local lines = {}
-        if terminal_buf and vim.api.nvim_buf_is_valid(terminal_buf) then
-          lines = vim.api.nvim_buf_get_lines(terminal_buf, 0, -1, false)
-        end
-        
-        if #lines == 0 then
-          lines = { "Terminal not running", "Press <CR> to start agent" }
-        end
-        
-        -- Take last 100 lines
-        local max_lines = 100
-        if #lines > max_lines then
-          lines = vim.list_slice(lines, #lines - max_lines + 1, #lines)
-        end
-        
-        -- Add header
-        local header = {
-          "=== " .. (wt.agent or "agent") .. " | " .. (wt.bead_id or "N/A") .. " | " .. (wt.status or "unknown") .. " ===",
-          "",
-        }
-        vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, vim.list_extend(header, lines))
-      end,
-    })
-  end
+  local previewers = require("telescope.previewers")
+  previewer = previewers.new_buffer_previewer({
+    get_buffer_by_name = function(_, entry)
+      return "worktree_preview:" .. entry.value.id
+    end,
+    define_preview = function(self, entry)
+      local wt = entry.value
+      local bufnr = self.state.bufnr
+      local winid = self.state.winid
+
+      -- Render initial preview
+      preview.render_to_buf(bufnr, wt.id)
+
+      -- Start live refresh
+      preview.start_live_refresh(winid, bufnr, wt.id)
+
+      -- Clean up on buffer detach
+      vim.api.nvim_buf_attach(bufnr, false, {
+        on_detach = function()
+          preview.stop_live_refresh()
+        end,
+      })
+    end,
+  })
 
   picker_instance = pickers.new({}, {
     prompt_title = "Active Agents",
