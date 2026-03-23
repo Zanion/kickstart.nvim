@@ -3,19 +3,16 @@ local M = {}
 local worktree = require("custom.work_dispatch.worktree")
 local registry = require("custom.work_dispatch.registry")
 
--- Lazily load agent module with defensive check
-local function get_agent()
-  local ok, agent_module = pcall(require, "custom.agent")
-  if not ok then
-    vim.notify("custom.agent module not found - agent features disabled", vim.log.levels.WARN, {
-      title = "Work Dispatch",
-    })
-    return { agents = {} }
-  end
-  return agent_module
+local sessions = {}
+
+local function generate_session_id()
+  return "session-" .. vim.fn.system({ "uuidgen" }):gsub("%s+$", ""):gsub("%-", ""):sub(1, 8)
 end
 
--- Lazily load snacks with defensive check
+local function generate_socket_path(session_id)
+  return "/tmp/nvim-" .. session_id .. ".sock"
+end
+
 local function get_snacks()
   local ok, snacks = pcall(require, "snacks")
   if not ok then
@@ -27,11 +24,27 @@ local function get_snacks()
   return snacks
 end
 
+local function get_agent_module()
+  local ok, agent_module = pcall(require, "custom.agent")
+  if not ok then
+    vim.notify("custom.agent module not found - agent features disabled", vim.log.levels.WARN, {
+      title = "Work Dispatch",
+    })
+    return { agents = {} }
+  end
+  return agent_module
+end
+
 local config = {
   worktree_root = nil,
   keybind = "<leader>aa",
   max_parallel = 5,
   bead_filter = "ready",
+  dispatch = {
+    auto_claim = true,
+    auto_focus = true,
+    confirm_parallel = true,
+  },
 }
 
 function M.setup(opts)
@@ -48,9 +61,27 @@ function M.setup(opts)
     if opts.bead_filter ~= nil then
       config.bead_filter = opts.bead_filter
     end
+    if opts.dispatch then
+      if opts.dispatch.auto_claim ~= nil then
+        config.dispatch.auto_claim = opts.dispatch.auto_claim
+      end
+      if opts.dispatch.auto_focus ~= nil then
+        config.dispatch.auto_focus = opts.dispatch.auto_focus
+      end
+      if opts.dispatch.confirm_parallel ~= nil then
+        config.dispatch.confirm_parallel = opts.dispatch.confirm_parallel
+      end
+    end
   end
 
   worktree.setup({ worktree_root = config.worktree_root })
+
+  local agent_mod = get_agent_module()
+  if agent_mod and agent_mod.setup then
+    agent_mod.setup()
+  end
+
+  setup_terminal_close_handler()
 
   vim.api.nvim_create_user_command("WorkDispatch", function()
     M.pick_dispatch()
@@ -81,17 +112,27 @@ end
 function M.dispatch(bead_id, agent_name, opts)
   opts = opts or {}
 
+  local agent_mod = get_agent_module()
+  if not agent_mod.agents[agent_name] then
+    return nil, "EINVALID: Invalid agent name: " .. agent_name
+  end
+
+  local beads_mod = require("custom.work_dispatch.beads")
+  local bead = beads_mod.get_bead(bead_id)
+  if not bead then
+    return nil, "ENOTFOUND: Bead not found: " .. bead_id
+  end
+
   local worktree_info, err = worktree.create(bead_id, opts.title or "")
   if not worktree_info then
     return nil, err
   end
 
-  worktree_info.bead_title = opts.title
+  worktree_info.bead_title = opts.title or bead.title
   worktree_info.agent = agent_name
 
   local entry = registry.create(worktree_info)
   if not entry then
-    -- Cleanup worktree on registry creation failure
     local remove_ok, remove_err = worktree.remove(worktree_info.name)
     if not remove_ok then
       vim.notify("Failed to cleanup worktree: " .. remove_err, vim.log.levels.WARN, {
@@ -101,42 +142,65 @@ function M.dispatch(bead_id, agent_name, opts)
     return nil, "Failed to create registry entry"
   end
 
-  local snacks = get_snacks()
-  if not snacks then
-    -- Cleanup on snacks failure
-    registry.delete(entry.id)
+  beads_mod.create_context(worktree_info.path, bead)
+
+  local session = M.agent.spawn({
+    path = worktree_info.path,
+    branch = worktree_info.branch,
+    name = worktree_info.name,
+    id = entry.id,
+    bead_id = bead_id,
+  }, agent_name)
+
+  if not session then
+    registry.update(entry.id, { status = "failed" })
     worktree.remove(worktree_info.name)
-    return nil, "snacks plugin required for terminal features"
+    return nil, "ESPAWN: Failed to spawn agent terminal"
   end
 
-  local agent_module = get_agent()
-  local cmd = agent_module.agents[agent_name] and agent_module.agents[agent_name].cmd or agent_name
-
-  local env = {
-    "BEAD_ID=" .. bead_id,
-    "WORKTREE_ID=" .. entry.id,
-    "NVIM_WORKTREE=" .. worktree_info.path,
-  }
-
-  if opts.env then
-    for k, v in pairs(opts.env) do
-      table.insert(env, k .. "=" .. v)
-    end
-  end
-
-  local full_cmd = table.concat(env, " ") .. " " .. cmd
-
-  snacks.terminal.toggle(full_cmd, {
-    cwd = worktree_info.path,
-    win = { style = "float", border = "rounded" },
-  })
+  sessions[session.session_id] = session
 
   registry.update(entry.id, {
     status = "running",
-    session_id = os.date("%s"),
+    session_id = session.session_id,
+    terminal_id = session.terminal_id,
+    pid = session.pid,
+    nvim_socket = session.nvim_socket,
   })
 
-  return entry
+  if config.dispatch.auto_claim then
+    beads_mod.claim(bead_id)
+  end
+
+  if config.dispatch.auto_focus then
+    M.agent.focus(session.session_id)
+  end
+
+  return {
+    success = true,
+    worktree = worktree_info,
+    bead = bead,
+    session = session,
+  }
+end
+
+function M.cancel(worktree_id)
+  local entry = registry.get(worktree_id)
+  if not entry then
+    return false, "Worktree not found"
+  end
+
+  if entry.session_id then
+    M.agent.terminate(entry.session_id)
+  end
+
+  if entry.path and vim.fn.isdirectory(entry.path) == 1 then
+    worktree.remove(entry.name)
+  end
+
+  registry.delete(entry.id)
+
+  return true
 end
 
 function M.list_active()
@@ -203,6 +267,36 @@ function M.focus(worktree_id)
     return nil, "Worktree not found"
   end
 
+  if entry.session_id then
+    local result = M.agent.focus(entry.session_id)
+    if result then
+      return entry
+    end
+  end
+
+  if entry.agent and entry.status == "paused" then
+    local worktree_info = {
+      path = entry.path,
+      branch = entry.branch,
+      name = entry.name,
+      id = entry.id,
+      bead_id = entry.bead_id,
+    }
+    local session = M.agent.spawn(worktree_info, entry.agent)
+    if session then
+      sessions[session.session_id] = session
+      registry.update(entry.id, {
+        status = "running",
+        session_id = session.session_id,
+        terminal_id = session.terminal_id,
+        pid = session.pid,
+        nvim_socket = session.nvim_socket,
+      })
+      M.agent.focus(session.session_id)
+      return entry
+    end
+  end
+
   local snacks = get_snacks()
   if not snacks then
     return nil, "snacks plugin required"
@@ -225,7 +319,6 @@ function M.focus(worktree_id)
     title = "Work Dispatch",
   })
 
-  -- Use vim.fn.chdir instead of vim.cmd for safer directory change
   vim.fn.chdir(entry.path)
 
   return entry
@@ -290,7 +383,7 @@ function M.pick_dispatch()
 end
 
 function M.pick_agent(bead)
-  local agent_module = get_agent()
+  local agent_module = get_agent_module()
   local agent_list = {}
   for name, _ in pairs(agent_module.agents or {}) do
     table.insert(agent_list, {
@@ -356,13 +449,206 @@ end
 M.worktree = worktree
 M.registry = registry
 M.beads = nil
-M.agent = get_agent
 
 function M.load_beads()
   if not M.beads then
     M.beads = require("custom.work_dispatch.beads")
   end
   return M.beads
+end
+
+local function setup_terminal_close_handler()
+  local snacks = get_snacks()
+  if not snacks then
+    return
+  end
+
+  vim.schedule(function()
+    local term = snacks.terminal
+    if term and term.listeners and term.listeners.close then
+      return
+    end
+
+    local close_handler = function(term_info)
+      for session_id, session in pairs(sessions) do
+        if session.terminal_id == term_info.id then
+          registry.update(session.worktree_id, {
+            status = "paused",
+          })
+          sessions[session_id].status = "paused"
+          break
+        end
+      end
+    end
+
+    if term and term.on_close then
+      local old_handler = term.on_close
+      term.on_close = function(...)
+        close_handler(...)
+        if old_handler then
+          old_handler(...)
+        end
+      end
+    end
+  end)
+end
+
+M.agent = {}
+
+function M.agent.spawn(worktree_info, agent_name)
+  local snacks = get_snacks()
+  if not snacks then
+    return nil
+  end
+
+  local session_id = generate_session_id()
+  local nvim_socket = generate_socket_path(session_id)
+
+  local agent_mod = get_agent_module()
+  local agent_config = agent_mod.agents[agent_name]
+  if not agent_config then
+    return nil
+  end
+
+  local cmd = agent_config.cmd
+
+  local full_cmd = string.format(
+    "NVIM_LISTEN_ADDRESS=%s BEAD_ID=%s WORKTREE_ID=%s %s",
+    vim.fn.shellescape(nvim_socket),
+    worktree_info.bead_id or "",
+    worktree_info.id or "",
+    cmd
+  )
+
+  local terminal = snacks.terminal.toggle(full_cmd, {
+    cwd = worktree_info.path,
+    win = { style = "float", border = "rounded" },
+    id = session_id,
+  })
+
+  if not terminal then
+    return nil
+  end
+
+  local session = {
+    session_id = session_id,
+    worktree_id = worktree_info.id,
+    worktree_path = worktree_info.path,
+    bead_id = worktree_info.bead_id,
+    agent = agent_name,
+    terminal_id = terminal.id,
+    terminal_buf = terminal.buf,
+    pid = terminal.pid or 0,
+    nvim_socket = nvim_socket,
+    status = "running",
+    started_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+  }
+
+  return session
+end
+
+function M.agent.focus(session_id)
+  local session = sessions[session_id]
+  if not session then
+    local entry = registry.get(session_id)
+    if not entry then
+      return nil, "Session not found"
+    end
+
+    local worktree_info = {
+      path = entry.path,
+      branch = entry.branch,
+      name = entry.name,
+      id = entry.id,
+      bead_id = entry.bead_id,
+    }
+    local new_session = M.agent.spawn(worktree_info, entry.agent)
+    if new_session then
+      sessions[new_session.session_id] = new_session
+      registry.update(entry.id, {
+        status = "running",
+        session_id = new_session.session_id,
+        terminal_id = new_session.terminal_id,
+      })
+      session = new_session
+    else
+      return nil, "Failed to respawn session"
+    end
+  end
+
+  local snacks = get_snacks()
+  if not snacks then
+    return nil
+  end
+
+  for _, terminal in pairs(snacks.terminal.list()) do
+    if terminal.id == session.terminal_id then
+      terminal:open()
+      return session
+    end
+  end
+
+  session.status = "paused"
+  registry.update(session.worktree_id, { status = "paused" })
+
+  return nil, "Terminal not found"
+end
+
+function M.agent.terminate(session_id)
+  local session = sessions[session_id]
+  if not session then
+    return nil, "Session not found"
+  end
+
+  local snacks = get_snacks()
+  if snacks then
+    for _, terminal in pairs(snacks.terminal.list()) do
+      if terminal.id == session.terminal_id then
+        terminal:close()
+        break
+      end
+    end
+  end
+
+  sessions[session_id] = nil
+
+  registry.update(session.worktree_id, {
+    status = "rejected",
+  })
+
+  return true
+end
+
+function M.agent.get_status(session_id)
+  local session = sessions[session_id]
+  if session then
+    return session.status
+  end
+
+  local entry = registry.get(session_id)
+  if entry then
+    return entry.status
+  end
+
+  return nil
+end
+
+function M.agent.list()
+  return sessions
+end
+
+function M.agent.get(session_id)
+  return sessions[session_id]
+end
+
+function M.agent.get_by_worktree(worktree_id)
+  local result = {}
+  for _, session in pairs(sessions) do
+    if session.worktree_id == worktree_id then
+      table.insert(result, session)
+    end
+  end
+  return result
 end
 
 return M
