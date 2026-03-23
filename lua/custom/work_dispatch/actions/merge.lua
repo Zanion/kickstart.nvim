@@ -9,8 +9,10 @@ local function get_snacks()
 end
 
 local function extract_bead_number(bead_id)
-  local num = bead_id:match("%d+")
-  return num or "0"
+  if not bead_id or bead_id == "" then
+    return nil
+  end
+  return bead_id:match("%d+")
 end
 
 local function has_uncommitted_changes(path)
@@ -151,12 +153,21 @@ Closes #%s
     bead_num
   )
 
+  -- Detect base branch (main or master)
+  local base = "main"
+  local base_check = vim.fn.system({
+    "git", "rev-parse", "--verify", "main"
+  }, nil, { cwd = worktree.path })
+  if vim.v.shell_error ~= 0 then
+    base = "master"
+  end
+
   local result = vim.fn.system({
     "gh", "pr", "create",
     "--title", title,
     "--body", body,
     "--head", worktree.branch,
-    "--base", "main"
+    "--base", base
   }, nil, { cwd = worktree.path })
 
   if vim.v.shell_error ~= 0 then
@@ -170,11 +181,11 @@ Closes #%s
   return true, url
 end
 
-function M.close_bead(bead_id)
+function M.close_bead(bead_id, path)
   local result = vim.fn.system({
     "bd", "close", bead_id,
     "--reason", "Implemented"
-  })
+  }, nil, { cwd = path })
 
   if vim.v.shell_error ~= 0 then
     vim.notify("Warning: Failed to close bead: " .. result, vim.log.levels.WARN, {
@@ -240,7 +251,7 @@ function M.execute(worktree_id)
     return { success = false, error = pr_url }
   end
 
-  M.close_bead(worktree.bead_id)
+  M.close_bead(worktree.bead_id, worktree.path)
 
   registry.update(worktree_id, {
     status = "done",
