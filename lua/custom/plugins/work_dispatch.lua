@@ -1,11 +1,11 @@
 return {
-  "custom/work_dispatch",
+  dir = vim.fn.stdpath("config") .. "/lua/custom/work_dispatch",
+  name = "work_dispatch",
   dependencies = {
     "folke/snacks.nvim",
     "nvim-telescope/telescope.nvim",
     "rcarriga/nvim-notify",
   },
-  event = "VimEnter",
   config = function()
     require("custom.work_dispatch").setup()
   end,
