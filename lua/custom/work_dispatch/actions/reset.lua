@@ -23,8 +23,8 @@ local function get_timestamp()
   return os.date("!%Y-%m-%dT%H:%M:%SZ")
 end
 
-function M.validate(session_id)
-  local worktree = registry.get(session_id)
+function M.validate(worktree_id)
+  local worktree = registry.get(worktree_id)
 
   if not worktree then
     return false, "Worktree not found", nil
@@ -42,8 +42,8 @@ function M.validate(session_id)
   return true, nil, worktree
 end
 
-function M.confirm(session_id)
-  local worktree = registry.get(session_id)
+function M.confirm(worktree_id)
+  local worktree = registry.get(worktree_id)
   if not worktree then
     return false
   end
@@ -61,13 +61,13 @@ function M.confirm(session_id)
   return confirmed == 1
 end
 
-function M.clear_needs_input(session_id)
-  local worktree = registry.get(session_id)
+function M.clear_needs_input(worktree_id)
+  local worktree = registry.get(worktree_id)
   if not worktree then
     return false, "Worktree not found"
   end
 
-  registry.update(session_id, {
+  registry.update(worktree_id, {
     needs_input = false,
     needs_input_since = nil,
   })
@@ -75,8 +75,8 @@ function M.clear_needs_input(session_id)
   return true
 end
 
-function M.kill_terminal(session_id)
-  local worktree = registry.get(session_id)
+function M.kill_terminal(worktree_id)
+  local worktree = registry.get(worktree_id)
   if not worktree then
     return false, "Worktree not found"
   end
@@ -131,8 +131,8 @@ function M.respawn_agent(worktree)
   return session_id
 end
 
-function M.update_registry(session_id, new_session_id)
-  local worktree = registry.get(session_id)
+function M.update_registry(worktree_id, new_session_id)
+  local worktree = registry.get(worktree_id)
   if not worktree then
     return false, "Worktree not found"
   end
@@ -146,13 +146,13 @@ function M.update_registry(session_id, new_session_id)
     session_id = new_session_id,
   }
 
-  registry.update(session_id, updates)
+  registry.update(worktree_id, updates)
 
   return true
 end
 
-function M.reset_bead(session_id)
-  local worktree = registry.get(session_id)
+function M.reset_bead(worktree_id)
+  local worktree = registry.get(worktree_id)
   if not worktree then
     return false, "Worktree not found"
   end
@@ -175,61 +175,65 @@ function M.reset_bead(session_id)
   return true
 end
 
-function M.notify(success, session_id)
-  local worktree = registry.get(session_id)
-  local bead_id = worktree and worktree.bead_id or session_id
+function M.notify(success, worktree_id)
+  local worktree = registry.get(worktree_id)
+  local bead_id = worktree and worktree.bead_id or worktree_id
 
-  if success then
-    vim.notify("Agent reset for " .. bead_id, vim.log.levels.INFO, {
+  local msg = success and ("Agent reset for " .. bead_id) or "Failed to reset agent"
+  local level = success and vim.log.levels.INFO or vim.log.levels.ERROR
+
+  local snacks = get_snacks()
+  if snacks and snacks.notify then
+    snacks.notify(msg, success and "info" or "error", {
       title = "Work Dispatch",
     })
   else
-    vim.notify("Failed to reset agent", vim.log.levels.ERROR, {
+    vim.notify(msg, level, {
       title = "Work Dispatch",
     })
   end
 end
 
-function M.execute(session_id, opts)
+function M.execute(worktree_id, opts)
   opts = opts or {}
 
   -- Validate
-  local valid, err, worktree = M.validate(session_id)
+  local valid, err, worktree = M.validate(worktree_id)
   if not valid then
     return { success = false, error = err }
   end
 
   -- Confirm if needed
   if opts.confirm ~= false then
-    local confirmed = M.confirm(session_id)
+    local confirmed = M.confirm(worktree_id)
     if not confirmed then
       return { success = false, error = "Cancelled" }
     end
   end
 
   -- Kill existing terminal
-  M.kill_terminal(session_id)
+  M.kill_terminal(worktree_id)
 
   -- Reset bead to ready if rejected
-  M.reset_bead(session_id)
+  M.reset_bead(worktree_id)
 
   -- Clear needs_input state
-  M.clear_needs_input(session_id)
+  M.clear_needs_input(worktree_id)
 
   -- Respawn agent
   local new_session_id = M.respawn_agent(worktree)
   if not new_session_id then
-    M.notify(false, session_id)
+    M.notify(false, worktree_id)
     return { success = false, error = "Failed to respawn agent" }
   end
 
   -- Update registry
-  local reg_ok = M.update_registry(session_id, new_session_id)
+  local reg_ok = M.update_registry(worktree_id, new_session_id)
   if not reg_ok then
     return { success = false, error = "Failed to update registry" }
   end
 
-  M.notify(true, session_id)
+  M.notify(true, worktree_id)
 
   return {
     success = true,
