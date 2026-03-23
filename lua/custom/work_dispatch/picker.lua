@@ -157,18 +157,33 @@ local function merge_agent(prompt_bufnr)
   local entry = selection.value
   actions.close(prompt_bufnr)
 
-  vim.notify("Merge action for: " .. entry.name, vim.log.levels.INFO, {
-    title = "Work Dispatch",
-  })
+  if entry.status == "done" then
+    vim.notify("Already merged: " .. entry.name, vim.log.levels.WARN, {
+      title = "Work Dispatch",
+    })
+    return
+  end
+
+  if entry.status == "rejected" then
+    vim.notify("Cannot merge rejected work: " .. entry.name, vim.log.levels.WARN, {
+      title = "Work Dispatch",
+    })
+    return
+  end
 
   local work_dispatch = require("custom.work_dispatch")
-  local beads = work_dispatch.load_beads()
+  local merge = require("custom.work_dispatch.actions.merge")
 
-  if entry.bead_id then
-    local ok = vim.fn.input("Merge " .. entry.bead_id .. "? (y/n): ")
-    if ok == "y" or ok == "Y" then
-      work_dispatch.set_status(entry.id, "done")
-      vim.notify("Merged: " .. entry.name, vim.log.levels.INFO, {
+  local ok = vim.fn.input("Merge " .. entry.name .. "? (y/n): ")
+  if ok == "y" or ok == "Y" then
+    local result = merge.execute(entry.id)
+
+    if result and result.success then
+      vim.notify("PR created: " .. result.pr_url, vim.log.levels.INFO, {
+        title = "Merge Complete",
+      })
+    else
+      vim.notify("Merge failed: " .. (result and result.error or "Unknown error"), vim.log.levels.ERROR, {
         title = "Work Dispatch",
       })
     end

@@ -457,8 +457,18 @@ end
 
 M.worktree = worktree
 M.registry = registry
-M.beads = nil
 M.picker = nil
+
+M.actions = {
+  merge = nil,
+}
+
+function M.load_actions()
+  if not M.actions.merge then
+    M.actions.merge = require("custom.work_dispatch.actions.merge")
+  end
+  return M.actions
+end
 
 function M.load_beads()
   if not M.beads then
