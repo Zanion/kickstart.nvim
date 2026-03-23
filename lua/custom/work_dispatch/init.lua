@@ -27,6 +27,51 @@ local function get_snacks()
   return snacks
 end
 
+--- snacks.win uses :show() and :focus(), not :open(). Telescopes may close after the
+--- terminal exists but before it appears in list(); retry briefly before giving up.
+local function raise_snacks_terminal(session, opts)
+  opts = opts or {}
+  local snacks = get_snacks()
+  if not snacks or not session then
+    return false
+  end
+
+  local max_attempts = opts.max_attempts or 28
+  local delay_ms = opts.delay_ms or 25
+
+  local function find_term()
+    for _, terminal in pairs(snacks.terminal.list()) do
+      if session.terminal_buf and terminal.buf == session.terminal_buf then
+        return terminal
+      end
+      if terminal.id == session.terminal_id then
+        return terminal
+      end
+    end
+    return nil
+  end
+
+  local attempt = 0
+  local function try()
+    attempt = attempt + 1
+    local term = find_term()
+    if term then
+      term:show()
+      term:focus()
+      return true
+    end
+    if attempt < max_attempts then
+      vim.defer_fn(try, delay_ms)
+    elseif opts.on_exhausted then
+      opts.on_exhausted()
+    end
+    return false
+  end
+
+  vim.schedule(try)
+  return true
+end
+
 local function get_agent_module()
   local ok, agent_module = pcall(require, "custom.agent")
   if not ok then
@@ -227,7 +272,10 @@ function M.dispatch(bead_id, agent_name, opts)
   end
 
   if config.dispatch.auto_focus then
-    M.agent.focus(session.session_id)
+    -- Run after Telescope/picker closes so the agent terminal can be found and focused.
+    vim.schedule(function()
+      M.agent.focus(session.session_id)
+    end)
   end
 
   return {
@@ -367,7 +415,8 @@ function M.focus(worktree_id)
     if vim.api.nvim_buf_is_valid(buf) then
       local name = vim.api.nvim_buf_get_name(buf)
       if name:match(terminal_matcher) and name:match(entry.path) then
-        terminal:open()
+        terminal:show()
+        terminal:focus()
         return entry
       end
     end
@@ -635,7 +684,7 @@ end
 function M.agent.focus(session_id)
   local session = sessions[session_id]
   if not session then
-    local entry = registry.get(session_id)
+    local entry = registry.find_by_session_id(session_id)
     if not entry then
       return nil, "Session not found"
     end
@@ -666,17 +715,14 @@ function M.agent.focus(session_id)
     return nil
   end
 
-  for _, terminal in pairs(snacks.terminal.list()) do
-    if terminal.id == session.terminal_id then
-      terminal:open()
-      return session
-    end
-  end
+  raise_snacks_terminal(session, {
+    on_exhausted = function()
+      session.status = "paused"
+      registry.update(session.worktree_id, { status = "paused" })
+    end,
+  })
 
-  session.status = "paused"
-  registry.update(session.worktree_id, { status = "paused" })
-
-  return nil, "Terminal not found"
+  return session
 end
 
 function M.agent.terminate(session_id)
@@ -688,6 +734,10 @@ function M.agent.terminate(session_id)
   local snacks = get_snacks()
   if snacks then
     for _, terminal in pairs(snacks.terminal.list()) do
+      if session.terminal_buf and terminal.buf == session.terminal_buf then
+        terminal:close()
+        break
+      end
       if terminal.id == session.terminal_id then
         terminal:close()
         break

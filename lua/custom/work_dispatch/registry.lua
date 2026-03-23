@@ -196,6 +196,20 @@ function M.find_by_bead(bead_id)
   return results
 end
 
+--- Find worktree entry by agent session_id (not the registry worktree id).
+function M.find_by_session_id(session_id)
+  if not session_id or session_id == "" then
+    return nil
+  end
+  local data = M.load()
+  for _, wt in ipairs(data.worktrees) do
+    if wt.session_id == session_id then
+      return wt
+    end
+  end
+  return nil
+end
+
 function M.find_by_status(status)
   local data = M.load()
   local results = {}

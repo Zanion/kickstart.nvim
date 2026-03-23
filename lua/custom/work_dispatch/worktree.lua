@@ -8,13 +8,36 @@ local function get_repo_root()
   local cwd = vim.fn.getcwd()
   local output = vim.fn.system({
     "git",
+    "-C",
+    cwd,
     "rev-parse",
     "--show-toplevel",
   })
   if vim.v.shell_error ~= 0 then
     return cwd
   end
-  return output:gsub("%s+$", "")
+  return vim.fn.fnamemodify(output:gsub("%s+$", ""), ":p"):gsub("/$", "")
+end
+
+--- Run git in repo root so worktrees/branches are always created in the intended repo
+--- (Neovim cwd may differ from the project root).
+local function git_cmd(repo_root, git_args)
+  local cmd = { "git", "-C", repo_root }
+  vim.list_extend(cmd, git_args)
+
+  if vim.system then
+    local r = vim.system(cmd, { text = true }):wait()
+    if r.code ~= 0 then
+      return nil, (r.stderr or "") .. (r.stdout or "")
+    end
+    return r.stdout or "", nil
+  end
+
+  local out = vim.fn.system(cmd)
+  if vim.v.shell_error ~= 0 then
+    return nil, out
+  end
+  return out, nil
 end
 
 local function resolve_path(path)
@@ -119,14 +142,9 @@ local function get_existing_worktrees()
     return {}
   end
 
-  local output = vim.fn.system({
-    "git",
-    "worktree",
-    "list",
-    "--porcelain",
-  })
-
-  if vim.v.shell_error ~= 0 then
+  local repo_root = get_repo_root()
+  local output, err = git_cmd(repo_root, { "worktree", "list", "--porcelain" })
+  if not output then
     return {}
   end
 
@@ -154,14 +172,9 @@ local function get_existing_worktrees()
 end
 
 local function get_counter_for_bead(bead_id)
-  local output = vim.fn.system({
-    "git",
-    "worktree",
-    "list",
-    "--porcelain",
-  })
-
-  if vim.v.shell_error ~= 0 then
+  local repo_root = get_repo_root()
+  local output, err = git_cmd(repo_root, { "worktree", "list", "--porcelain" })
+  if not output then
     return 0
   end
 
@@ -212,19 +225,17 @@ function M.create(bead_id, title, opts)
 
   local branch = name
 
-  local cmd = {
-    "git",
+  local repo_root = get_repo_root()
+  local _, err = git_cmd(repo_root, {
     "worktree",
     "add",
     "-b",
     branch,
     path,
     "HEAD",
-  }
-
-  local result = vim.fn.system(cmd)
-  if vim.v.shell_error ~= 0 then
-    return nil, "EGIT: " .. result
+  })
+  if err then
+    return nil, "EGIT: " .. err
   end
 
   if not M.is_gitignored(root) then
@@ -240,14 +251,9 @@ function M.create(bead_id, title, opts)
 end
 
 function M.list()
-  local output = vim.fn.system({
-    "git",
-    "worktree",
-    "list",
-    "--porcelain",
-  })
-
-  if vim.v.shell_error ~= 0 then
+  local repo_root = get_repo_root()
+  local output, err = git_cmd(repo_root, { "worktree", "list", "--porcelain" })
+  if not output then
     return {}
   end
 
@@ -284,15 +290,10 @@ function M.remove(worktree_id)
     return false, "ENOTDIR: Worktree not found"
   end
 
-  local result = vim.fn.system({
-    "git",
-    "worktree",
-    "remove",
-    path,
-  })
-
-  if vim.v.shell_error ~= 0 then
-    return false, "EGIT: " .. result
+  local repo_root = get_repo_root()
+  local _, rm_err = git_cmd(repo_root, { "worktree", "remove", path })
+  if rm_err then
+    return false, "EGIT: " .. rm_err
   end
 
   return true
