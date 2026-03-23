@@ -178,7 +178,9 @@ local function get_counter_for_bead(bead_id)
       -- Look for counter in branch name: feature-{bead-id}-{counter}-{slug}
       -- Match pattern like "feature-bd-42-1-some-feature"
       if current_branch then
-        local counter = current_branch:match("feature%-" .. bead_id .. "%-(%d+)%-")
+        -- Escape bead_id for use in Lua pattern
+        local escaped_id = bead_id:gsub("([%.%+%-%*%?%[%]%^%$%(%)%%])", "%%%1")
+        local counter = current_branch:match("feature%-" .. escaped_id .. "%-(%d+)%-")
         if counter then
           max_counter = math.max(max_counter, tonumber(counter))
         end

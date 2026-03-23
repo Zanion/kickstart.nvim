@@ -671,12 +671,6 @@ function M.agent.focus(session_id)
   return nil, "Terminal not found"
 end
 
-local function cleanup_socket(session)
-  if session and session.nvim_socket then
-    vim.fn.delete(session.nvim_socket)
-  end
-end
-
 function M.agent.terminate(session_id)
   local session = sessions[session_id]
   if not session then
