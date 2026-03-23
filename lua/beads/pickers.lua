@@ -45,7 +45,7 @@ local function make_entry(issue)
   }
 end
 
-local function open_in_browser(prompt_bufnr)
+local function open_preview(prompt_bufnr)
   local selection = action_state.get_selected_entry(prompt_bufnr)
   Actions.close(prompt_bufnr)
   vim.cmd(string.format(':BdShow %s', selection.value.id))
@@ -93,7 +93,7 @@ function M.list()
     sorter = conf.generic_sorter(),
     attach_mappings = function(prompt_bufnr, map)
       map('i', '<CR>', open_in_browser)
-      map('i', config.get().keymaps.show, open_in_browser)
+      map('i', config.get().keymaps.show, open_preview)
       return true
     end,
   }):find()
@@ -115,7 +115,7 @@ function M.ready()
     sorter = conf.generic_sorter(),
     attach_mappings = function(prompt_bufnr, map)
       map('i', '<CR>', open_in_browser)
-      map('i', config.get().keymaps.show, open_in_browser)
+      map('i', config.get().keymaps.show, open_preview)
       return true
     end,
   }):find()
@@ -137,7 +137,7 @@ function M.blocked()
     sorter = conf.generic_sorter(),
     attach_mappings = function(prompt_bufnr, map)
       map('i', '<CR>', open_in_browser)
-      map('i', config.get().keymaps.show, open_in_browser)
+      map('i', config.get().keymaps.show, open_preview)
       return true
     end,
   }):find()
@@ -162,7 +162,7 @@ function M.search()
     sorter = conf.generic_sorter(),
     attach_mappings = function(prompt_bufnr, map)
       map('i', '<CR>', open_in_browser)
-      map('i', config.get().keymaps.show, open_in_browser)
+      map('i', config.get().keymaps.show, open_preview)
       return true
     end,
 
@@ -190,7 +190,7 @@ function M.query()
       sorter = conf.generic_sorter(),
       attach_mappings = function(prompt_bufnr, map)
         map('i', '<CR>', open_in_browser)
-        map('i', config.get().keymaps.show, open_in_browser)
+        map('i', config.get().keymaps.show, open_preview)
         return true
       end,
     }):find()
