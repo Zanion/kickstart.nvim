@@ -105,6 +105,13 @@ function M.setup(opts)
       silent = true,
     })
   end
+
+  vim.keymap.set("n", "<leader>aa", function()
+    require("custom.work_dispatch.picker").open()
+  end, {
+    desc = "Active Agents Picker",
+    silent = true,
+  })
 end
 
 function M.get_config()
@@ -451,6 +458,7 @@ end
 M.worktree = worktree
 M.registry = registry
 M.beads = nil
+M.picker = nil
 
 function M.load_beads()
   if not M.beads then
@@ -672,6 +680,13 @@ function M.agent.get_by_worktree(worktree_id)
     end
   end
   return result
+end
+
+function M.load_picker()
+  if not M.picker then
+    M.picker = require("custom.work_dispatch.picker")
+  end
+  return M.picker
 end
 
 return M
