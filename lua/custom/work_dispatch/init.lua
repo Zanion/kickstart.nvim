@@ -2,6 +2,7 @@ local M = {}
 
 local worktree = require("custom.work_dispatch.worktree")
 local registry = require("custom.work_dispatch.registry")
+local ipc = require("custom.work_dispatch.ipc.handler")
 
 local sessions = {}
 
@@ -77,6 +78,8 @@ function M.setup(opts)
   end
 
   worktree.setup({ worktree_root = config.worktree_root })
+
+  ipc.setup()
 
   local agent_mod = get_agent_module()
   if agent_mod and agent_mod.setup then
@@ -276,6 +279,10 @@ function M.focus(worktree_id)
     return nil, "Worktree not found"
   end
 
+  if entry.needs_input then
+    ipc.clear_needs_input(worktree_id)
+  end
+
   if entry.session_id then
     local result = M.agent.focus(entry.session_id)
     if result then
@@ -457,6 +464,7 @@ end
 
 M.worktree = worktree
 M.registry = registry
+M.ipc = ipc
 M.picker = nil
 
 M.actions = {
