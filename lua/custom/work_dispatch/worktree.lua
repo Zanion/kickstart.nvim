@@ -171,17 +171,18 @@ local function get_counter_for_bead(bead_id)
   local current_branch = nil
   for line in output:gmatch("[^\r\n]+") do
     if line:match("^worktree ") then
-      -- New worktree entry, reset
+      -- New worktree entry, reset current_branch
+      current_branch = nil
     elseif line:match("^branch ") then
       current_branch = line:gsub("^branch ", "")
-    elseif current_branch then
       -- Look for counter in branch name: feature-{bead-id}-{counter}-{slug}
       -- Match pattern like "feature-bd-42-1-some-feature"
-      local counter = current_branch:match("feature%-" .. bead_id .. "%-(%d+)%%-")
-      if counter then
-        max_counter = math.max(max_counter, tonumber(counter))
+      if current_branch then
+        local counter = current_branch:match("feature%-" .. bead_id .. "%-(%d+)%-")
+        if counter then
+          max_counter = math.max(max_counter, tonumber(counter))
+        end
       end
-      current_branch = nil
     end
   end
 

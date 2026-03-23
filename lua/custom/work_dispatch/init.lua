@@ -135,6 +135,43 @@ function M.dispatch(bead_id, agent_name, opts)
     return nil, "ENOTFOUND: Bead not found: " .. bead_id
   end
 
+  -- Check parallel limit
+  local existing = registry.find_by_bead(bead_id)
+  local active_count = 0
+  for _, wt in ipairs(existing) do
+    if wt.status ~= "rejected" and wt.status ~= "done" then
+      active_count = active_count + 1
+    end
+  end
+
+  if active_count >= config.max_parallel then
+    return nil, string.format(
+      "Max parallel agents (%d) reached for %s",
+      config.max_parallel,
+      bead_id
+    )
+  end
+
+  -- Check if same agent already working on this bead
+  if config.dispatch.confirm_parallel then
+    for _, wt in ipairs(existing) do
+      if wt.agent == agent_name and wt.status ~= "rejected" and wt.status ~= "done" then
+        local choice = vim.fn.confirm(
+          agent_name .. " already working on " .. bead_id .. ".\nUse existing or create parallel?",
+          "&Use Existing\n&Create Parallel\n&Cancel",
+          1
+        )
+        if choice == 1 then
+          return M.focus(wt.id)
+        elseif choice == 3 or choice == 0 then
+          return nil, "Cancelled"
+        end
+        -- choice == 2 continues to create parallel
+        break
+      end
+    end
+  end
+
   local worktree_info, err = worktree.create(bead_id, opts.title or "")
   if not worktree_info then
     return nil, err
